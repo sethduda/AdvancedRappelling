@@ -18,7 +18,7 @@ Adds support for helicopter rappelling. SP & MP Compatible.
  
 **Installation:**
 
-1. Subscribe via steam: http://steamcommunity.com/sharedfiles/filedetails/?id=615007497 or download latest release from https://github.com/sethduda/AdvancedRappelling/releases
+1. Subscribe via steam: http://steamcommunity.com/sharedfiles/filedetails/?id=713709341 or download latest release from https://github.com/sethduda/AdvancedRappelling/releases
 2. If installing this on a server, add the addon to the -serverMod command line option. It's only needed on the server side. Clients down need it.
 
 **Notes for Mission Makers:**
