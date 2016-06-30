@@ -18,12 +18,43 @@ AR_RAPPELLING_INIT = true;
 
 diag_log "Advanced Rappelling Loading...";
 
+AP_RAPPEL_POINTS = [];
+
 AR_RAPPEL_POINT_CLASS_HEIGHT_OFFSET = [  
 	["All", [-0.05, -0.05, -0.05, -0.05, -0.05, -0.05]]
 ];
 
 AR_Get_Heli_Rappel_Points = {
 	params ["_vehicle"];
+	
+	// Check for pre-defined rappel points
+	
+	private ["_preDefinedRappelPoints","_className","_rappelPoints","_preDefinedRappelPointsConverted"];
+	_preDefinedRappelPoints = [];
+	{
+		_className = _x select 0;
+		_rappelPoints = _x select 1;
+		if( _vehicle isKindOf _className ) then {
+			_preDefinedRappelPoints = _rappelPoints;
+		};
+	} forEach (AP_RAPPEL_POINTS + (missionNamespace getVariable ["AP_CUSTOM_RAPPEL_POINTS",[]]));
+	if(count _preDefinedRappelPoints > 0) exitWith { 
+		_preDefinedRappelPointsConverted = [];
+		{
+			if(typeName _x == "STRING") then {
+				_modelPosition = _vehicle selectionPosition _x;
+				if( [0,0,0] distance _modelPosition > 0 ) then {
+					_preDefinedRappelPointsConverted pushBack _modelPosition;
+				};
+			} else {
+				_preDefinedRappelPointsConverted pushBack _x;
+			};
+		} forEach _preDefinedRappelPoints;
+		_preDefinedRappelPointsConverted;
+	};
+	
+	// Calculate dynamic rappel points
+	
 	private ["_rappelPointsArray","_cornerPoints","_frontLeftPoint","_frontRightPoint","_rearLeftPoint","_rearRightPoint","_rearLeftPointFinal"];
 	private ["_rearRightPointFinal","_frontLeftPointFinal","_frontRightPointFinal","_middleLeftPointFinal","_middleRightPointFinal","_vehicleUnitVectorUp"];
 	private ["_rappelPoints","_modelPoint","_modelPointASL","_surfaceIntersectStartASL","_surfaceIntersectEndASL","_surfaces","_intersectionASL","_intersectionObject"];
@@ -126,7 +157,7 @@ AR_Rappel_From_Heli = {
 		_heli setVariable ["AR_Rappelling_Player_" + str _rappelPointIndex,_player];
 
 		_player setVariable ["AR_Rappelling_Vehicle", _heli, true];
-		
+
 		// Start rappelling (client side)
 		[_player,_heli,_rappelPoints select _rappelPointIndex] spawn AR_Client_Rappel_From_Heli;
 		
