@@ -29,6 +29,17 @@ You can customize which classes of vehicles support rappelling by setting the AR
 
 The example above will only allow rappelling from vehicles of class CUP_CH47F_base and RHS_CH_47F.
 
+You can define custom rappel points instead of using the default 6 rappel points. You can either specify [x,y,z] model positions or memory point names. Here's an example mixing both memory point names and [x,y,z] model positions:
+
+```
+AP_CUSTOM_RAPPEL_POINTS = [ 
+	["CUP_CH47F_base",["slingload0",[1.2,1.0,0.5],"fastrope0"]],
+	["RHS_CH_47F",    ["slingload0","slingload1","fastrope0"]]
+];
+```
+
+In the example above, all vehicles of class type CUP_CH47F_base will use the rappel points defined by memory point slingload0, model position [1.2,1.0,0.5] and memory point fastrope0. All vehicles of class RHS_CH_47F will use rappel points slingload0, slingload1, and fastrope0. All other vehicles will use the default 6 rappel points.
+
 **Not working on your server?**
 
 Make sure you have the mod listed in the -mod or -serverMod command line option. Only -serverMod is required for this addon. If still not working, check your server log to make sure the addon is found. 
