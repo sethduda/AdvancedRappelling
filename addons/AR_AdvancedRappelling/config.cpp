@@ -36,3 +36,22 @@ class CfgFunctions
 		};
 	};
 };
+
+class CfgSounds
+{
+	class AUR_Rappel_Loop
+	{
+		name = "AR_Rappel_Loop";
+		titles[] = {0,""};
+	};
+	class AR_Rappel_Start
+	{
+		name = "AR_Rappel_Start";
+		titles[] = {0,""};
+	};
+	class AR_Rappel_End
+	{
+		name = "AR_Rappel_End";
+		titles[] = {0,""};
+	};
+};

@@ -24,6 +24,72 @@ AR_RAPPEL_POINT_CLASS_HEIGHT_OFFSET = [
 	["All", [-0.05, -0.05, -0.05, -0.05, -0.05, -0.05]]
 ];
 
+// TODO: Test this function
+AR_autoRappellAllCargo = {
+	params ["_vehicle"];
+	_vehicle flyInHeight 20;
+	_this spawn {
+		params ["_vehicle"];
+		private ["_timeout","_startTime"];
+		_timeout = 120;
+		_startTime = diag_tickTime;
+		while { count (fullCrew [_vehicle, "cargo"]) > 0 || diag_tickTime - _startTime > _timeout } do { 
+			if( (getPos _vehicle) select 2 < 40 ) then { 
+				{ 
+					doGetOut (_x select 0);
+					[_x select 0, _vehicle] call AR_Rappel_From_Heli_Action;
+				} forEach (fullCrew [_vehicle, "cargo"]);
+			}; 
+			sleep 5; 
+		};
+		_vehicle flyInHeight 100;
+	};
+};
+
+AR_Play_Rappelling_Sounds_Global = {
+	_this remoteExec ["AR_Play_Rappelling_Sounds", 0];
+};
+
+AR_Play_Rappelling_Sounds = {
+	params ["_player","_rappelDevice","_rappelAncor"];
+	private ["_lastDistanceFromAnchor","_distanceFromAnchor","_config","_configMission"];
+	_config = getArray ( configFile / "CfgSounds" / "AR_Rappel_Start" / "sound" );
+	_configMission = getArray ( missionConfigFile / "CfgSounds" / "AR_Rappel_Start" / "sound" );
+	if(!hasInterface || ( count _config == 0 && count _configMission == 0) ) exitWith {};
+	_lastDistanceFromAnchor = _rappelDevice distance _rappelAncor;
+	if(player distance _player < 15) then {
+		[_player, "AR_Rappel_Start"] call AR_Play_3D_Sound;
+		[_rappelDevice, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
+	};
+	// TODO: Add is rappelling variable, adjust how it checks for distance?
+	while {_player getVariable ["AR_Is_Rappelling",false]} do {
+		_distanceFromAnchor = _rappelDevice distance _rappelAncor;
+		if(_distanceFromAnchor > _lastDistanceFromAnchor + 0.5 && player distance _player < 15) then {
+			[_player, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
+			sleep 0.2;
+			[_rappelDevice, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
+		};
+		sleep 0.9;
+		_lastDistanceFromAnchor = _distanceFromAnchor;
+	};
+	if(player distance _player < 15) then {
+		[_player, "AR_Rappel_End"] call AR_Play_3D_Sound;
+	};
+};
+
+AR_Play_3D_Sound = {
+	params ["_soundSource","_className"];
+	private ["_config","_configMission"];
+	_config = getArray ( configFile / "CfgSounds" / _className / "sound" );
+	if(count _config > 0) exitWith {
+		_soundSource say3D  _className;
+	};
+	_configMission = getArray ( missionConfigFile / "CfgSounds" / _className / "sound" );
+	if(count _configMission > 0) exitWith {
+		_soundSource say3D  _className;
+	};
+};
+
 AR_Get_Heli_Rappel_Points = {
 	params ["_vehicle"];
 	
@@ -180,6 +246,9 @@ AR_Rappel_From_Heli = {
 AR_Client_Rappel_From_Heli = {
 	params ["_player","_heli","_rappelPoint"];	
 	if(local _player) then {
+	
+		_player setVariable ["AR_Is_Rappelling",true,true];
+	
 		if(!isPlayer _player) then { 
 			unassignVehicle _player;
 		};
@@ -191,21 +260,23 @@ AR_Client_Rappel_From_Heli = {
 		_playerStartPosition set [0,(_playerStartPosition select 0) - ((((random 100)-50))/25)];
 		_player setPosWorld _playerStartPosition;
 
-		_helper = "Land_Can_V2_F" createVehicle position _player;
-		_helper allowDamage false;
-		hideObject _helper;
-		[[_helper],"AR_Hide_Object_Global"] call AR_RemoteExecServer;
-		_helper attachTo [_heli,_rappelPoint];
+		_anchor = "Land_Can_V2_F" createVehicle position _player;
+		_anchor allowDamage false;
+		hideObject _anchor;
+		[[_anchor],"AR_Hide_Object_Global"] call AR_RemoteExecServer;
+		_anchor attachTo [_heli,_rappelPoint];
 		
-		_helper2 = "B_static_AA_F" createVehicle position _player;
-		_helper2 setPosWorld _playerStartPosition;
-		_helper2 allowDamage false;
-		hideObject _helper2;
-		[[_helper2],"AR_Hide_Object_Global"] call AR_RemoteExecServer;
+		_rappelDevice = "B_static_AA_F" createVehicle position _player;
+		_rappelDevice setPosWorld _playerStartPosition;
+		_rappelDevice allowDamage false;
+		hideObject _rappelDevice;
+		[[_rappelDevice],"AR_Hide_Object_Global"] call AR_RemoteExecServer;
 		
-		_rope2 = ropeCreate [_helper2, [0,0,0], 50];
+		[[_player,_rappelDevice,_anchor],"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
+		
+		_rope2 = ropeCreate [_rappelDevice, [0.16,0,0], 50];
 		_rope2 allowDamage false;
-		_rope1 = ropeCreate [_helper2, [0,0,0], _helper, [0, 0, 0], 3];
+		_rope1 = ropeCreate [_rappelDevice, [0,0.15,0], _anchor, [0, 0, 0], 3];
 		_rope1 allowDamage false;
 
 		_player setVariable ["AR_Rappel_Rope_Top",_rope1];
@@ -218,7 +289,7 @@ AR_Client_Rappel_From_Heli = {
 		_gravityAccelerationVec = [0,0,-9.8];
 		_velocityVec = [0,0,0];
 		_lastTime = diag_tickTime;
-		_lastPosition = AGLtoASL (_helper2 modelToWorldVisual [0,0,0]);
+		_lastPosition = AGLtoASL (_rappelDevice modelToWorldVisual [0,0,0]);
 		_dir = random 365;
 		_dirSpinFactor = ((random 10) - 5) / 5;
 		
@@ -269,56 +340,62 @@ AR_Client_Rappel_From_Heli = {
 				_surfaceVector = ( vectorNormalized ( _newPosition vectorFromTo (_heliPos) ));
 				_velocityVec = _velocityVec vectorAdd (( _surfaceVector vectorMultiply (_velocityVec vectorDotProduct _surfaceVector)) vectorMultiply -1);
 			};
-			_helper2 setPosWorld (_newPosition vectorAdd (_velocityVec vectorMultiply 0.09) );
-			_player setPosWorld [_newPosition select 0, _newPosition select 1, (_newPosition select 2) - 1];
+
+			_rappelDevice setPosWorld (_newPosition vectorAdd (_velocityVec vectorMultiply 0.1) );
+			_rappelDevice setVectorDir (vectorDir _player); 
+			_player setPosWorld [_newPosition select 0, _newPosition select 1, (_newPosition select 2)-0.6];
 			_player setVelocity [0,0,0];
 			
 			// Fix player direction
 			_player setDir _dir;
 			_dir = _dir + ((360/1000) * _dirSpinFactor);
 			_lastPosition = _newPosition;
-			
-			if((getPos _player) select 2 < 1 || !alive _player) exitWith {};
-			
+		
+			if((getPos _player) select 2 < 1 || !alive _player || vehicle _player != _player || ropeLength _rope2 <= 1 || _player getVariable ["AR_Detach_Rope",false] ) exitWith {};
+
 			sleep 0.01;
 		};
+				
+		if(ropeLength _rope2 > 1 && alive _player && vehicle _player == _player) then {
 		
-		_playerStartASLIntersect = getPosASL _player;
-		_playerEndASLIntersect = [_playerStartASLIntersect select 0, _playerStartASLIntersect select 1, (_playerStartASLIntersect select 2) - 10];
-		_surfaces = lineIntersectsSurfaces [_playerStartASLIntersect, _playerEndASLIntersect, _player, objNull, true, 10];
-		_intersectionASL = [];
-		{
-			scopeName "surfaceLoop";
-			_intersectionObject = _x select 2;
-			_objectFileName = str _intersectionObject;
-			if((_objectFileName find " t_") == -1 && (_objectFileName find " b_") == -1) then {
-				_intersectionASL = _x select 0;
-				breakOut "surfaceLoop";
-			};
-		} forEach _surfaces;
-		
-		if(count _intersectionASL == 0) then {
-			_playerPos = getPos _player;
-			_playerPos set [2,0];
-			_intersectionASL = AGLtoASL _playerPos;
-		};		
+			_playerStartASLIntersect = getPosASL _player;
+			_playerEndASLIntersect = [_playerStartASLIntersect select 0, _playerStartASLIntersect select 1, (_playerStartASLIntersect select 2) - 5];
+			_surfaces = lineIntersectsSurfaces [_playerStartASLIntersect, _playerEndASLIntersect, _player, objNull, true, 10];
+			_intersectionASL = [];
+			{
+				scopeName "surfaceLoop";
+				_intersectionObject = _x select 2;
+				_objectFileName = str _intersectionObject;
+				if((_objectFileName find " t_") == -1 && (_objectFileName find " b_") == -1) then {
+					_intersectionASL = _x select 0;
+					breakOut "surfaceLoop";
+				};
+			} forEach _surfaces;
+			
+			if(count _intersectionASL != 0) then {
+				_player allowDamage false;
+				_player setPosASL _intersectionASL;
+			};		
 
-		_player allowDamage false;
+			if(_player getVariable ["AR_Detach_Rope",false]) then {
+				// Player detached from rope. Don't prevent damage 
+				// if we didn't find a position on the ground
+				if(count _intersectionASL == 0) then {
+					_player allowDamage true;
+				};	
+			};
+			
+		};
 		
 		_player switchMove "";
 		[[_player,false],"AR_Enable_Rappelling_Animation"] call AR_RemoteExecServer;
-		
-		_player setPosASL _intersectionASL;
-		
+
 		ropeDestroy _rope1;
 		ropeDestroy _rope2;		
-		deleteVehicle _helper;
-		deleteVehicle _helper2;
+		deleteVehicle _anchor;
+		deleteVehicle _rappelDevice;
 		
-		sleep 2;
-		
-		_player allowDamage true;	
-	
+		_player setVariable ["AR_Is_Rappelling",nil,true];
 		_player setVariable ["AR_Rappelling_Vehicle", nil, true];
 		_player setVariable ["AR_Rappel_Rope_Top",nil];
 		_player setVariable ["AR_Rappel_Rope_Bottom",nil];
@@ -326,6 +403,10 @@ AR_Client_Rappel_From_Heli = {
 		if(_decendRopeKeyDownHandler != -1) then {			
 			(findDisplay 46) displayRemoveEventHandler ["KeyDown", _decendRopeKeyDownHandler];
 		};
+		
+		sleep 2;
+		
+		_player allowDamage true;	
 
 	} else {
 		[_this,"AR_Client_Rappel_From_Heli",_player] call AR_RemoteExec;
@@ -349,6 +430,17 @@ AR_Client_Enable_Rappelling_Animation = {
 			_player enableSimulation true;
 		};
 	};
+};
+
+AR_Rappel_Detach_Action = {
+	params ["_player"];
+	_player setVariable ["AR_Detach_Rope",true];
+};
+
+AR_Rappel_Detach_Action_Check = {
+	params ["_player"];
+	if!(_player getVariable ["AR_Is_Rappelling",false]) exitWith {false;};
+	true;
 };
 
 AR_Rappel_From_Heli_Action = {
@@ -468,6 +560,10 @@ AR_Add_Player_Actions = {
 			};
 		} forEach (units player);
 	}, nil, 0, false, true, "", "[player] call AR_Rappel_AI_Units_From_Heli_Action_Check"];
+	
+	_player addAction ["Detach Rappel Device", { 
+		[player] call AR_Rappel_Detach_Action;
+	}, nil, 0, false, true, "", "[player] call AR_Rappel_Detach_Action_Check"];
 	
 	_player addEventHandler ["Respawn", {
 		player setVariable ["AR_Actions_Loaded",false];
