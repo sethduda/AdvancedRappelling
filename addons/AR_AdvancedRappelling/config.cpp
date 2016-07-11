@@ -39,7 +39,7 @@ class CfgFunctions
 
 class CfgSounds
 {
-	class AUR_Rappel_Loop
+	class AR_Rappel_Loop
 	{
 		name = "AR_Rappel_Loop";
 		sound[] = {"\AR_AdvancedRappelling\sounds\AR_Rappel_Loop.ogg", db+20, 1};
