@@ -10,6 +10,8 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
+if (!isServer) exitWith {};
+
 AR_Advanced_Rappelling_Install = {
 
 // Prevent advanced rappelling from installing twice
@@ -24,25 +26,93 @@ AR_RAPPEL_POINT_CLASS_HEIGHT_OFFSET = [
 	["All", [-0.05, -0.05, -0.05, -0.05, -0.05, -0.05]]
 ];
 
-// TODO: Test this function
-AR_autoRappellAllCargo = {
-	params ["_vehicle"];
-	_vehicle flyInHeight 20;
-	_this spawn {
-		params ["_vehicle"];
-		private ["_timeout","_startTime"];
-		_timeout = 120;
-		_startTime = diag_tickTime;
-		while { count (fullCrew [_vehicle, "cargo"]) > 0 || diag_tickTime - _startTime > _timeout } do { 
-			if( (getPos _vehicle) select 2 < 40 ) then { 
-				{ 
-					doGetOut (_x select 0);
-					[_x select 0, _vehicle] call AR_Rappel_From_Heli_Action;
-				} forEach (fullCrew [_vehicle, "cargo"]);
-			}; 
-			sleep 5; 
+AR_Rappel_All_Cargo = {
+	params ["_vehicle",["_rappelHeight",25],["_positionASL",[]],["_forceEditorAssignedUnitsOut",true]];
+	private ["_heliCargo"];
+	_heliCargo = fullCrew [_vehicle, "cargo"];
+	if(count _heliCargo == 0 || isPlayer (driver _vehicle)) exitWith {};
+	if(local _vehicle) then {
+		_this spawn {
+			params ["_vehicle",["_rappelHeight",25],["_positionASL",[]],["_forceEditorAssignedUnitsOut",true]];
+			_heliGroup = group driver _vehicle;
+			_vehicle setVariable ["AR_Units_Rappelling",true];
+
+			_heliGroupOriginalBehaviour = behaviour leader _heliGroup;
+			_heliGroupOriginalCombatMode = combatMode leader _heliGroup;
+			_heliGroupOriginalFormation = formation _heliGroup;
+
+			if(count _positionASL == 0) then {
+				_positionASL = AGLtoASL [(getPos _vehicle) select 0, (getPos _vehicle) select 1, 0];
+			};
+			_positionASL = _positionASL vectorAdd [0, 0, _rappelHeight];
+			
+			_gameLogicLeader = _heliGroup createUnit ["LOGIC", ASLToAGL _positionASL, [], 0, ""];
+			_heliGroup selectLeader _gameLogicLeader;
+
+			_heliGroup setBehaviour "Careless";
+			_heliGroup setCombatMode "Blue";
+			_heliGroup setFormation "File";
+			
+			// Wait for heli to slow down
+			waitUntil { (vectorMagnitude (velocity _vehicle)) < 10 && _vehicle distance2d _gameLogicLeader < 50  };
+			
+			// Force heli to specific position
+			[_vehicle, _positionASL] spawn {
+				params ["_vehicle","_positionASL"];
+				while { _vehicle getVariable ["AR_Units_Rappelling",true] && alive _vehicle } do {
+
+					_velocityMagatude = 5;
+					_distanceToPosition = ((getPosASL _vehicle) distance _positionASL);
+					if( _distanceToPosition <= 10 ) then {
+						_velocityMagatude = (_distanceToPosition / 10) * _velocityMagatude;
+					};
+					
+					_currentVelocity = velocity _vehicle;
+					_currentVelocity = _currentVelocity vectorAdd (( (getPosASL _vehicle) vectorFromTo _positionASL ) vectorMultiply _velocityMagatude);
+					_currentVelocity = (vectorNormalized _currentVelocity) vectorMultiply ( (vectorMagnitude _currentVelocity) min _velocityMagatude );
+					_vehicle setVelocity _currentVelocity;
+					
+					sleep 0.05;
+				};
+			};
+
+			_rappelUnits = [];
+			// Rappel all cargo
+			while { count (fullCrew [_vehicle, "cargo"]) > 0 } do { 	
+				_distanceToPosition = ((getPosASL _vehicle) distance _positionASL);
+				if(_distanceToPosition < 3) then {
+					{
+						[_x select 0, _vehicle] call AR_Rappel_From_Heli_Action;
+						_rappelUnits = _rappelUnits + [_x select 0]; 
+						sleep 1;
+					} forEach (fullCrew [_vehicle, "cargo"]);
+				};
+				sleep 1;
+			};
+
+			// Wait for all units to reach ground
+			_unitsRappelling = true;
+			while { _unitsRappelling } do { 
+				_unitsRappelling = false;
+				{
+					if( _x getVariable ["AR_Is_Rappelling",false] ) then {
+						_unitsRappelling = true;
+					};
+				} forEach _rappelUnits;
+				sleep 3;
+			};
+			
+			_vehicle setVariable ["AR_Units_Rappelling",false];
+
+			deleteVehicle _gameLogicLeader;
+			
+			_heliGroup setBehaviour _heliGroupOriginalBehaviour;
+			_heliGroup setCombatMode _heliGroupOriginalCombatMode;
+			_heliGroup setFormation _heliGroupOriginalFormation;
+
 		};
-		_vehicle flyInHeight 100;
+	} else {
+		[_this,"AR_Rappel_All_Cargo",_vehicle] call AR_RemoteExec;
 	};
 };
 
@@ -64,7 +134,7 @@ AR_Play_Rappelling_Sounds = {
 	// TODO: Add is rappelling variable, adjust how it checks for distance?
 	while {_player getVariable ["AR_Is_Rappelling",false]} do {
 		_distanceFromAnchor = _rappelDevice distance _rappelAncor;
-		if(_distanceFromAnchor > _lastDistanceFromAnchor + 0.5 && player distance _player < 15) then {
+		if(_distanceFromAnchor > _lastDistanceFromAnchor + 1 && player distance _player < 15) then {
 			[_player, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
 			sleep 0.2;
 			[_rappelDevice, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
@@ -167,7 +237,7 @@ AR_Get_Heli_Rappel_Points = {
 		
 		if(_la select 2 < 0 && _lb select 2 > 0) then {
 			_n = [0,0,1];
-			_p0 = [0,0,0];
+			_p0 = [0,0,0.1];
 			_l = (_la vectorFromTo _lb);
 			if((_l vectorDotProduct _n) != 0) then {
 				_d = ( ( _p0 vectorAdd ( _la vectorMultiply -1 ) ) vectorDotProduct _n ) / (_l vectorDotProduct _n);
@@ -217,7 +287,9 @@ AR_Rappel_From_Heli = {
 		
 		// All rappel anchors are taken by other players. Hint player to try again.
 		if(count _rappelPoints == _rappelPointIndex) exitWith {
-			[["All rappel anchors in use. Please try again.", false],"AR_Hint",_player] call AR_RemoteExec;
+			if(isPlayer _player) then {
+				[["All rappel anchors in use. Please try again.", false],"AR_Hint",_player] call AR_RemoteExec;
+			};
 		};
 		
 		_heli setVariable ["AR_Rappelling_Player_" + str _rappelPointIndex,_player];
@@ -274,7 +346,7 @@ AR_Client_Rappel_From_Heli = {
 		
 		[[_player,_rappelDevice,_anchor],"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
 		
-		_rope2 = ropeCreate [_rappelDevice, [0.16,0,0], 50];
+		_rope2 = ropeCreate [_rappelDevice, [0.16,0,0], 60];
 		_rope2 allowDamage false;
 		_rope1 = ropeCreate [_rappelDevice, [0,0.15,0], _anchor, [0, 0, 0], 3];
 		_rope1 allowDamage false;
@@ -456,6 +528,7 @@ AR_Rappel_From_Heli_Action_Check = {
 	if(((getPos _vehicle) select 2) < 5 ) exitWith {false};
 	if(((getPos _vehicle) select 2) > 150 ) exitWith {false};
 	if(driver _vehicle == _player) exitWith {false};
+	if(speed _vehicle > 150) exitWith {false};
 	true;
 };
 
@@ -509,7 +582,8 @@ AR_Get_Corner_Points = {
 };
 
 AR_SUPPORTED_VEHICLES = [
-	"Helicopter"
+	"Helicopter",
+	"VTOL_Base_F"
 ];
 
 AR_Is_Supported_Vehicle = {
@@ -615,7 +689,7 @@ if(isServer) then {
 	
 	// Adds support for exile network calls (Only used when running exile) //
 	
-	AR_SUPPORTED_REMOTEEXECSERVER_FUNCTIONS = ["AR_Hide_Object_Global","AR_Enable_Rappelling_Animation","AR_Rappel_From_Heli"];
+	AR_SUPPORTED_REMOTEEXECSERVER_FUNCTIONS = ["AR_Hide_Object_Global","AR_Enable_Rappelling_Animation","AR_Rappel_From_Heli","AR_Play_Rappelling_Sounds_Global"];
 
 	ExileServer_AdvancedRappelling_network_AdvancedRappellingRemoteExecServer = {
 		params ["_sessionId", "_messageParameters",["_isCall",false]];
@@ -629,7 +703,7 @@ if(isServer) then {
 		};
 	};
 	
-	AR_SUPPORTED_REMOTEEXECCLIENT_FUNCTIONS = ["AR_Client_Rappel_From_Heli","AR_Hint"];
+	AR_SUPPORTED_REMOTEEXECCLIENT_FUNCTIONS = ["AR_Client_Rappel_From_Heli","AR_Hint","AR_Rappel_All_Cargo"];
 	
 	ExileServer_AdvancedRappelling_network_AdvancedRappellingRemoteExecClient = {
 		params ["_sessionId", "_messageParameters"];
@@ -642,11 +716,6 @@ if(isServer) then {
 			};
 		};
 	};
-
-	// Install Advanced Rappelling on all clients (plus JIP) //
-	
-	publicVariable "AR_Advanced_Rappelling_Install";
-	remoteExecCall ["AR_Advanced_Rappelling_Install", -2,true];
 	
 };
 
@@ -654,6 +723,8 @@ diag_log "Advanced Rappelling Loaded";
 
 };
 
-if(isServer) then {
-	[] call AR_Advanced_Rappelling_Install;
-};
+publicVariable "AR_Advanced_Rappelling_Install";
+
+[] call AR_Advanced_Rappelling_Install;
+// Install Advanced Rappelling on all clients (plus JIP) //
+remoteExecCall ["AR_Advanced_Rappelling_Install", -2,true];
