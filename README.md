@@ -44,6 +44,19 @@ In the example above, all vehicles of class type CUP_CH47F_base will use the rap
  
 If anyone works on heli models and would like their heli's rappel points pre-defined in my addon, let me know.
 
+You can have AI auto-rappel from a helicopter using the following script (all units in the cargo seats will rappel): 
+
+```[HELI_NAME] call AR_Rappel_All_Cargo ```
+
+This function will rappel the cargo units at 25m at the heli's current position. If the heli is currently moving, it will stop so units can rappel. 
+
+If you want more control, there are addtional parameters you can set: 
+
+```[HELI_NAME,RAPPEL_HEIGHT,POSITION_ASL] call AR_Rappel_All_Cargo ```
+
+RAPPEL_HEIGHT: height in meters to rappel 
+POSITION_ASL: Exact position ASL where you want the units to rappel to. This script will get them within ~1m of that position. 
+
 **Not working on your server?**
 
 Make sure you have the mod listed in the -mod or -serverMod command line option. Only -serverMod is required for this addon. If still not working, check your server log to make sure the addon is found. 
