@@ -29,7 +29,7 @@ AR_RAPPEL_POINT_CLASS_HEIGHT_OFFSET = [
 AR_Rappel_All_Cargo = {
 	params ["_vehicle",["_rappelHeight",25],["_positionASL",[]],["_forceEditorAssignedUnitsOut",true]];
 	private ["_heliCargo"];
-	_heliCargo = fullCrew [_vehicle, "cargo"];
+	_heliCargo = (fullCrew [_vehicle, "cargo"]) + (fullCrew [_vehicle, "turret"]);
 	if(count _heliCargo == 0 || isPlayer (driver _vehicle)) exitWith {};
 	if(local _vehicle) then {
 		_this spawn {
@@ -78,14 +78,14 @@ AR_Rappel_All_Cargo = {
 
 			_rappelUnits = [];
 			// Rappel all cargo
-			while { count (fullCrew [_vehicle, "cargo"]) > 0 } do { 	
+			while { count ((fullCrew [_vehicle, "cargo"]) + (fullCrew [_vehicle, "turret"])) > 0 } do { 	
 				_distanceToPosition = ((getPosASL _vehicle) distance _positionASL);
 				if(_distanceToPosition < 3) then {
 					{
 						[_x select 0, _vehicle] call AR_Rappel_From_Heli_Action;
 						_rappelUnits = _rappelUnits + [_x select 0]; 
 						sleep 1;
-					} forEach (fullCrew [_vehicle, "cargo"]);
+					} forEach ((fullCrew [_vehicle, "cargo"]) + (fullCrew [_vehicle, "turret"]));
 				};
 				sleep 1;
 			};
