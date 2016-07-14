@@ -27,13 +27,12 @@ AR_RAPPEL_POINT_CLASS_HEIGHT_OFFSET = [
 ];
 
 AR_Rappel_All_Cargo = {
-	params ["_vehicle",["_rappelHeight",25],["_positionASL",[]],["_forceEditorAssignedUnitsOut",true]];
-	private ["_heliCargo"];
-	_heliCargo = (fullCrew [_vehicle, "cargo"]) + (fullCrew [_vehicle, "turret"]);
-	if(count _heliCargo == 0 || isPlayer (driver _vehicle)) exitWith {};
+	params ["_vehicle",["_rappelHeight",25],["_positionASL",[]]];
+	if(isPlayer (driver _vehicle)) exitWith {};
 	if(local _vehicle) then {
 		_this spawn {
-			params ["_vehicle",["_rappelHeight",25],["_positionASL",[]],["_forceEditorAssignedUnitsOut",true]];
+			params ["_vehicle",["_rappelHeight",25],["_positionASL",[]]];
+	
 			_heliGroup = group driver _vehicle;
 			_vehicle setVariable ["AR_Units_Rappelling",true];
 
@@ -59,7 +58,8 @@ AR_Rappel_All_Cargo = {
 			// Force heli to specific position
 			[_vehicle, _positionASL] spawn {
 				params ["_vehicle","_positionASL"];
-				while { _vehicle getVariable ["AR_Units_Rappelling",true] && alive _vehicle } do {
+				
+				while { _vehicle getVariable ["AR_Units_Rappelling",false] && alive _vehicle } do {
 
 					_velocityMagatude = 5;
 					_distanceToPosition = ((getPosASL _vehicle) distance _positionASL);
@@ -76,20 +76,34 @@ AR_Rappel_All_Cargo = {
 				};
 			};
 
+			// Find all units that will be rappelling
 			_rappelUnits = [];
-			// Rappel all cargo
-			while { count ((fullCrew [_vehicle, "cargo"]) + (fullCrew [_vehicle, "turret"])) > 0 } do { 	
+			_rappelledGroups = [];
+			{
+				if( group _x != _heliGroup && alive _x ) then {
+					_rappelUnits pushBack _x;
+					_rappelledGroups = _rappelledGroups + [group _x];
+				};
+			} forEach crew _vehicle;
+	
+			// Rappel all units
+			_unitsOutsideVehicle = [];
+			while { count _unitsOutsideVehicle != count _rappelUnits } do { 	
 				_distanceToPosition = ((getPosASL _vehicle) distance _positionASL);
 				if(_distanceToPosition < 3) then {
 					{
-						[_x select 0, _vehicle] call AR_Rappel_From_Heli_Action;
-						_rappelUnits = _rappelUnits + [_x select 0]; 
+						[_x, _vehicle] call AR_Rappel_From_Heli;					
 						sleep 1;
-					} forEach ((fullCrew [_vehicle, "cargo"]) + (fullCrew [_vehicle, "turret"]));
+					} forEach (_rappelUnits-_unitsOutsideVehicle);
+					{
+						if!(_x in _vehicle) then {
+							_unitsOutsideVehicle pushBack _x;
+						};
+					} forEach (_rappelUnits-_unitsOutsideVehicle);
 				};
-				sleep 1;
+				sleep 2;
 			};
-
+			
 			// Wait for all units to reach ground
 			_unitsRappelling = true;
 			while { _unitsRappelling } do { 
@@ -102,14 +116,14 @@ AR_Rappel_All_Cargo = {
 				sleep 3;
 			};
 			
-			_vehicle setVariable ["AR_Units_Rappelling",false];
-
 			deleteVehicle _gameLogicLeader;
 			
 			_heliGroup setBehaviour _heliGroupOriginalBehaviour;
 			_heliGroup setCombatMode _heliGroupOriginalCombatMode;
 			_heliGroup setFormation _heliGroupOriginalFormation;
 
+			_vehicle setVariable ["AR_Units_Rappelling",nil];
+	
 		};
 	} else {
 		[_this,"AR_Rappel_All_Cargo",_vehicle] call AR_RemoteExec;
@@ -122,28 +136,37 @@ AR_Play_Rappelling_Sounds_Global = {
 
 AR_Play_Rappelling_Sounds = {
 	params ["_player","_rappelDevice","_rappelAncor"];
-	private ["_lastDistanceFromAnchor","_distanceFromAnchor","_config","_configMission"];
+	private ["_config","_configMission"];
 	_config = getArray ( configFile / "CfgSounds" / "AR_Rappel_Start" / "sound" );
 	_configMission = getArray ( missionConfigFile / "CfgSounds" / "AR_Rappel_Start" / "sound" );
 	if(!hasInterface || ( count _config == 0 && count _configMission == 0) ) exitWith {};
-	_lastDistanceFromAnchor = _rappelDevice distance _rappelAncor;
 	if(player distance _player < 15) then {
 		[_player, "AR_Rappel_Start"] call AR_Play_3D_Sound;
 		[_rappelDevice, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
 	};
-	// TODO: Add is rappelling variable, adjust how it checks for distance?
-	while {_player getVariable ["AR_Is_Rappelling",false]} do {
-		_distanceFromAnchor = _rappelDevice distance _rappelAncor;
-		if(_distanceFromAnchor > _lastDistanceFromAnchor + 1 && player distance _player < 15) then {
-			[_player, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
-			sleep 0.2;
-			[_rappelDevice, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
+	_this spawn {
+		params ["_player","_rappelDevice","_rappelAncor"];
+		private ["_lastDistanceFromAnchor","_distanceFromAnchor"];
+		_lastDistanceFromAnchor = _rappelDevice distance _rappelAncor;
+		while {_player getVariable ["AR_Is_Rappelling",false]} do {
+			_distanceFromAnchor = _rappelDevice distance _rappelAncor;
+			if(_distanceFromAnchor > _lastDistanceFromAnchor + 1 && player distance _player < 15) then {
+				[_player, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
+				sleep 0.2;
+				[_rappelDevice, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
+			};
+			sleep 0.9;
+			_lastDistanceFromAnchor = _distanceFromAnchor;
 		};
-		sleep 0.9;
-		_lastDistanceFromAnchor = _distanceFromAnchor;
 	};
-	if(player distance _player < 15) then {
-		[_player, "AR_Rappel_End"] call AR_Play_3D_Sound;
+	_this spawn {
+		params ["_player"];
+		while {_player getVariable ["AR_Is_Rappelling",false]} do {
+			sleep 0.1;
+		};
+		if(player distance _player < 15) then {
+			[_player, "AR_Rappel_End"] call AR_Play_3D_Sound;
+		};
 	};
 };
 
@@ -276,6 +299,9 @@ AR_Rappel_From_Heli = {
 	params ["_player","_heli"];
 	if(isServer) then {
 	
+		if!(_player in _heli) exitWith {};
+		if(_player getVariable ["AR_Is_Rappelling", false]) exitWith {};
+	
 		// Find next available rappel anchor
 		_rappelPoints = [_heli] call AR_Get_Heli_Rappel_Points;
 		_rappelPointIndex = 0;
@@ -294,7 +320,7 @@ AR_Rappel_From_Heli = {
 		
 		_heli setVariable ["AR_Rappelling_Player_" + str _rappelPointIndex,_player];
 
-		_player setVariable ["AR_Rappelling_Vehicle", _heli, true];
+		_player setVariable ["AR_Is_Rappelling",true,true];
 
 		// Start rappelling (client side)
 		[_player,_heli,_rappelPoints select _rappelPointIndex] spawn AR_Client_Rappel_From_Heli;
@@ -304,7 +330,7 @@ AR_Rappel_From_Heli = {
 			params ["_player","_heli", "_rappelPointIndex"];
 			while {true} do {
 				if(!alive _player) exitWith {};
-				if(isNull (_player getVariable ["AR_Rappelling_Vehicle", objNull])) exitWith {};
+				if!(_player getVariable ["AR_Is_Rappelling", false]) exitWith {};
 				sleep 2;
 			};
 			_heli setVariable ["AR_Rappelling_Player_" + str _rappelPointIndex, nil];
@@ -318,12 +344,7 @@ AR_Rappel_From_Heli = {
 AR_Client_Rappel_From_Heli = {
 	params ["_player","_heli","_rappelPoint"];	
 	if(local _player) then {
-	
-		_player setVariable ["AR_Is_Rappelling",true,true];
-	
-		if(!isPlayer _player) then { 
-			unassignVehicle _player;
-		};
+		[_player] orderGetIn false;
 		moveOut _player;
 		waitUntil { vehicle _player == _player};
 		_playerStartPosition = AGLtoASL (_heli modelToWorldVisual _rappelPoint);
@@ -386,6 +407,20 @@ AR_Client_Rappel_From_Heli = {
 			ropeUnwind [ _rope2, 3 + _randomSpeedFactor, ropeLength _rope1];
 		};
 		
+		// Cause player to fall from rope if heli is moving too fast
+		_this spawn {
+			params ["_player","_heli"];	
+			while {_player getVariable ["AR_Is_Rappelling", false]} do {
+				if(speed _heli > 150) then {
+					if(isPlayer _player) then {
+						["Moving too fast! You've lost grip of the rope.", false] call AR_Hint;
+					};
+					[_player] call AR_Rappel_Detach_Action;
+				};
+				sleep 2;
+			};
+		};
+		
 		while {true} do {
 		
 			_currentTime = diag_tickTime;
@@ -421,8 +456,9 @@ AR_Client_Rappel_From_Heli = {
 			// Fix player direction
 			_player setDir _dir;
 			_dir = _dir + ((360/1000) * _dirSpinFactor);
+			
 			_lastPosition = _newPosition;
-		
+			
 			if((getPos _player) select 2 < 1 || !alive _player || vehicle _player != _player || ropeLength _rope2 <= 1 || _player getVariable ["AR_Detach_Rope",false] ) exitWith {};
 
 			sleep 0.01;
@@ -527,8 +563,8 @@ AR_Rappel_From_Heli_Action_Check = {
 	if!([_vehicle] call AR_Is_Supported_Vehicle) exitWith {false};
 	if(((getPos _vehicle) select 2) < 5 ) exitWith {false};
 	if(((getPos _vehicle) select 2) > 150 ) exitWith {false};
-	if(driver _vehicle == _player) exitWith {false};
-	if(speed _vehicle > 150) exitWith {false};
+	if(driver _vehicle == _player && isEngineOn _vehicle) exitWith {false};
+	if(speed _vehicle > 100) exitWith {false};
 	true;
 };
 
