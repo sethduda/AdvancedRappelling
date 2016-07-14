@@ -402,9 +402,13 @@ AR_Client_Rappel_From_Heli = {
 				};
 			}];
 		} else {
-			_randomSpeedFactor = ((random 10) - 5) / 10;
-			ropeUnwind [ _rope1, 3 + _randomSpeedFactor, ropeLength _rope2];
-			ropeUnwind [ _rope2, 3 + _randomSpeedFactor, ropeLength _rope1];
+			[_rope1,_rope2] spawn {
+				params ["_rope1","_rope2"];
+				sleep 2;
+				_randomSpeedFactor = ((random 10) - 5) / 10;
+				ropeUnwind [ _rope1, 3 + _randomSpeedFactor, ropeLength _rope2];
+				ropeUnwind [ _rope2, 3 + _randomSpeedFactor, ropeLength _rope1];
+			};
 		};
 		
 		// Cause player to fall from rope if heli is moving too fast
@@ -491,6 +495,11 @@ AR_Client_Rappel_From_Heli = {
 				if(count _intersectionASL == 0) then {
 					_player allowDamage true;
 				};	
+			};
+			
+			// Allow damage if you get out of a heli with no engine on
+			if(!isEngineOn _heli) then {
+				_player allowDamage true;
 			};
 			
 		};
@@ -665,7 +674,7 @@ AR_Add_Player_Actions = {
 	_player addAction ["Rappel AI Units", { 
 		{
 			if(!isPlayer _x) then {
-				sleep 0.2;
+				sleep 1;
 				[_x, vehicle _x] call AR_Rappel_From_Heli_Action;
 			};
 		} forEach (units player);
