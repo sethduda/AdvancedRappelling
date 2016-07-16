@@ -516,6 +516,7 @@ AR_Client_Rappel_From_Heli = {
 		_player setVariable ["AR_Rappelling_Vehicle", nil, true];
 		_player setVariable ["AR_Rappel_Rope_Top",nil];
 		_player setVariable ["AR_Rappel_Rope_Bottom",nil];
+		_player setVariable ["AR_Detach_Rope",nil];
 		
 		if(_decendRopeKeyDownHandler != -1) then {			
 			(findDisplay 46) displayRemoveEventHandler ["KeyDown", _decendRopeKeyDownHandler];
