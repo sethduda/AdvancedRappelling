@@ -6,9 +6,6 @@ class CfgMovesBasic
 	class ManActions
 	{
 		AR_01="AR_01_Idle";
-		AR_01_Jump1 = "";	
-		AR_01_Jump2 = "";	
-		AR_01_Jump3 = "";	
 								
 	};
 	class Actions
@@ -274,8 +271,7 @@ class CfgMovesMaleSdr: CfgMovesBasic
 		class AR_01_Aim: cargo_base_Rope
 		{
 			actions="AR_01_Actions";
-			leftHandIKCurve[]={0};
-			rightHandIKCurve[]={0};
+			leftHandIKCurve[]={1};
 			minPlayTime = 0.1;								
 			file="\AR_AdvancedRappelling\anims\Rup_RopeFX_01_aim.rtm";	/// what file is going to be played in this state
 			speed=100000;											
@@ -329,7 +325,6 @@ class CfgMovesMaleSdr: CfgMovesBasic
 			minPlayTime = 0.1;
 			aiming="aimingDefault";
 			leftHandIKCurve[]={0};
-			rightHandIKCurve[]={0};
 			InterpolateTo[]=
 			{
 				"AR_01_Aim",
@@ -363,7 +358,7 @@ class CfgMovesMaleSdr: CfgMovesBasic
 			variantsPlayer[]={};
 			headBobStrength=0;
 			soundEnabled=1;
-			file="\AR_AdvancedRappelling\anims\Rup_RopeFX_01_idle.rtm";
+			file="\AR_AdvancedRappelling\anims\Rup_RopeFX_01_idle1.rtm";
 			speed=-10;
 			ConnectTo[]=
 			{

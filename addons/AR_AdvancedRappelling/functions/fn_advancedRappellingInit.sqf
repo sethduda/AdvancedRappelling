@@ -147,7 +147,7 @@ AR_Play_Rappelling_Sounds_Global = {
 
 AR_Play_Rappelling_Sounds = {
 	params ["_player","_rappelDevice","_rappelAncor"];
-	if(!hasInterface || !(call AUR_Has_Addon_Sounds_Installed) ) exitWith {};
+	if(!hasInterface || !(call AR_Has_Addon_Sounds_Installed) ) exitWith {};
 	if(player distance _player < 15) then {
 		[_player, "AR_Rappel_Start"] call AR_Play_3D_Sound;
 		[_rappelDevice, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
@@ -375,7 +375,7 @@ AR_Client_Rappel_From_Heli = {
 		
 		[[_player,_rappelDevice,_anchor],"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
 		
-		_rope2 = ropeCreate [_rappelDevice, [0.16,0,0], 60];
+		_rope2 = ropeCreate [_rappelDevice, [-0.15,0,0], 60];
 		_rope2 allowDamage false;
 		_rope1 = ropeCreate [_rappelDevice, [0,0.15,0], _anchor, [0, 0, 0], 3];
 		_rope1 allowDamage false;
@@ -389,8 +389,9 @@ AR_Client_Rappel_From_Heli = {
 		_velocityVec = [0,0,0];
 		_lastTime = diag_tickTime;
 		_lastPosition = AGLtoASL (_rappelDevice modelToWorldVisual [0,0,0]);
-		_dir = random 365;
-		_dirSpinFactor = ((random 10) - 5) / 5;
+		_lookDirFreedom = 50;
+		_dir = (random 360) + (_lookDirFreedom / 2);
+		_dirSpinFactor = (((random 10) - 5) / 5) max 0.1;
 		
 		_decendRopeKeyDownHandler = -1;
 		if(_player == player) then {			
@@ -465,8 +466,35 @@ AR_Client_Rappel_From_Heli = {
 			_player setVelocity [0,0,0];
 			
 			// Fix player direction
-			_player setDir _dir;
 			_dir = _dir + ((360/1000) * _dirSpinFactor);
+			if(isPlayer _player) then {
+				_currentDir = getDir _player;
+				_minDir = (_dir - (_lookDirFreedom/2)) mod 360;
+				_maxDir = (_dir + (_lookDirFreedom/2)) mod 360;
+				_minDegreesToMax = 0;
+				_minDegreesToMin = 0;
+				if( _currentDir > _maxDir ) then {
+					_minDegreesToMax = (_currentDir - _maxDir) min (360 - _currentDir + _maxDir);
+				};
+				if( _currentDir < _maxDir ) then {
+					_minDegreesToMax = (_maxDir - _currentDir) min (360 - _maxDir + _currentDir);
+				};
+				if( _currentDir > _minDir ) then {
+					_minDegreesToMin = (_currentDir - _minDir) min (360 - _currentDir + _minDir);
+				};
+				if( _currentDir < _minDir ) then {
+					_minDegreesToMin = (_minDir - _currentDir) min (360 - _minDir + _currentDir);
+				};
+				if( _minDegreesToMin > _lookDirFreedom || _minDegreesToMax > _lookDirFreedom ) then {
+					if( _minDegreesToMin < _minDegreesToMax ) then {
+						_player setDir _minDir;
+					} else {
+						_player setDir _maxDir;
+					};
+				};
+			} else {
+				_player setDir _dir;
+			};
 			
 			_lastPosition = _newPosition;
 			
