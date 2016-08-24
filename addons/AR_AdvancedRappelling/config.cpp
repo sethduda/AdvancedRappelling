@@ -58,3 +58,5 @@ class CfgSounds
 		titles[] = {0,""};
 	};
 };
+
+#include "cfgAnimations.hpp"
