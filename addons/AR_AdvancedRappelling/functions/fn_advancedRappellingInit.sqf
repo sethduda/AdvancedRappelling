@@ -452,7 +452,8 @@ AR_Client_Rappel_From_Heli = {
 				_velocityVec = _velocityVec vectorAdd (( _surfaceVector vectorMultiply (_velocityVec vectorDotProduct _surfaceVector)) vectorMultiply -1);
 			};
 
-			_rappelDevice setPosWorld (_newPosition vectorAdd (_velocityVec vectorMultiply 0.1) );
+			_rappelDevice setPosWorld (_lastPosition vectorAdd ((_newPosition vectorDiff _lastPosition) vectorMultiply 6));
+			
 			_rappelDevice setVectorDir (vectorDir _player); 
 			_player setPosWorld [_newPosition select 0, _newPosition select 1, (_newPosition select 2)-0.6];
 			_player setVelocity [0,0,0];
