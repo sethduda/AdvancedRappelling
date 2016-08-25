@@ -29,6 +29,14 @@ You can customize which classes of vehicles support rappelling by setting the AR
 
 The example above will only allow rappelling from vehicles of class CUP_CH47F_base and RHS_CH_47F.
 
+You can disable shooting whlie rappelling by setting the AR_DISABLE_SHOOTING_OVERRIDE varaible in an init.sqf file. Defaults to false (shooting enabled).
+
+```AR_DISABLE_SHOOTING_OVERRIDE = true; ```
+
+You can limit the number of rappell positions (for all helicopters) using the AR_MAX_RAPPEL_POINTS_OVERRIDE variable in an init.sqf file. Defaults to 6. You can set any value from 1 to 6.
+
+```AR_MAX_RAPPEL_POINTS_OVERRIDE = 2;```
+
 You can define custom rappel points instead of using the default 6 rappel points by using the AP_CUSTOM_RAPPEL_POINTS variable. You can either specify [x,y,z] model positions or memory point names. Define the AP_CUSTOM_RAPPEL_POINTS variable in your init.sqf file.
 
 Here's an example mixing both memory point names and [x,y,z] model positions. You would put this in an init.sqf file.
