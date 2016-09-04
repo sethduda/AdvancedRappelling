@@ -26,6 +26,355 @@ AR_RAPPEL_POINT_CLASS_HEIGHT_OFFSET = [
 	["All", [-0.05, -0.05, -0.05, -0.05, -0.05, -0.05]]
 ];
 
+
+#define AR_FNC_CAMERA_DISTANCE (missionNamespace getVariable ["AR_3rd_Person_Camera_Distance",5])
+#define AR_FNC_CAMERA (missionNamespace getVariable ["AR_3rd_Person_Camera",objNull])
+#define AR_FNC_CAMERA_X_TOTAL (missionNamespace getVariable ["AR_3rd_Person_Camera_X_Move_Total",-90])
+#define AR_FNC_CAMERA_Y_TOTAL (missionNamespace getVariable ["AR_3rd_Person_Camera_Y_Move_Total",60])
+#define AR_FNC_CAMERA_Y_TOTAL_PRIOR (missionNamespace getVariable ["AR_3rd_Person_Camera_Y_Move_Total_Prior",AR_FNC_CAMERA_Y_TOTAL])
+#define AR_FNC_CAMERA_REL_POSITION [AR_FNC_CAMERA_DISTANCE * (cos AR_FNC_CAMERA_X_TOTAL) * (sin AR_FNC_CAMERA_Y_TOTAL), AR_FNC_CAMERA_DISTANCE * (sin AR_FNC_CAMERA_X_TOTAL) * (sin AR_FNC_CAMERA_Y_TOTAL), AR_FNC_CAMERA_DISTANCE * (cos AR_FNC_CAMERA_Y_TOTAL)]
+#define AR_FNC_CAMERA_WORLD_POSITION ((camTarget AR_FNC_CAMERA) modelToWorld AR_FNC_CAMERA_REL_POSITION)
+	
+AR_Enable_3rd_Person_Camera = {
+	_this spawn {
+		params ["_object"];
+		private ["_lastPosition"];
+		waitUntil {time > 0};
+		showCinemaBorder false;
+		AR_3rd_Person_Camera = "camera" camCreate (_object modelToWorld [0,0,0]); 
+		AR_3rd_Person_Camera camSetTarget _object; 
+		AR_3rd_Person_Camera cameraEffect ["internal", "BACK"];
+		[] call AR_Camera_Update_Position;
+		waitUntil {!isNull (findDisplay 46)};
+		_mouseMoveEventHandler = (findDisplay 46) displayAddEventHandler ["MouseMoving", "_this call AR_Camera_Mouse_Move_Handler"];
+		_mouseZoomEventHandler = (findDisplay 46) displayAddEventHandler ["MouseZChanged", "_this call AR_Camera_Mouse_Zoom_Handler"];
+		_lastPosition = getPos _object;
+		_lastVectorDir = vectorDir _object;
+		while {!isNull AR_FNC_CAMERA && !isNull _object && alive _object} do {
+			if(_lastPosition distance _object > 0.01 || vectorMagnitude (_lastVectorDir vectorDiff (vectorDir _object)) > 0.01 ) then {
+				[] call AR_Camera_Update_Position;
+				_lastPosition = getPos _object;
+			};
+			sleep 0.01;
+		};
+		[] call AR_Disable_3rd_Person_Camera;
+	};
+};
+
+AR_Disable_3rd_Person_Camera = {
+	if(!isNull AR_FNC_CAMERA) then {
+		AR_FNC_CAMERA cameraEffect ["Terminate", "Back"];
+		camDestroy AR_FNC_CAMERA;
+		missionNamespace setVariable ["AR_3rd_Person_Camera_Distance",nil];
+		missionNamespace setVariable ["AR_3rd_Person_Camera",nil];
+		missionNamespace setVariable ["AR_3rd_Person_Camera_X_Move_Total",nil];
+		missionNamespace setVariable ["AR_3rd_Person_Camera_Y_Move_Total",nil];
+		missionNamespace setVariable ["AR_3rd_Person_Camera_Y_Move_Total_Prior",nil];
+	}
+};
+
+AR_Camera_Mouse_Zoom_Handler = {
+	private ["_mouseZoom","_distance"];
+	_mouseZoom = (_this select 1);
+	if(_mouseZoom > 0) then {
+		_mouseZoom = 1;
+	} else {
+		_mouseZoom = -1;
+	};
+	_distance =	AR_FNC_CAMERA_DISTANCE;
+	AR_3rd_Person_Camera_Distance = (_distance - _mouseZoom) max 3 min 30;
+	[] spawn AR_Camera_Update_Position;
+};
+
+AR_Camera_Mouse_Move_Handler = {
+	private ["_cam","_distance","_target"];
+	AR_3rd_Person_Camera_X_Move_Total = AR_FNC_CAMERA_X_TOTAL + (-(_this select 1)*0.16);
+	AR_3rd_Person_Camera_Y_Move_Total = AR_FNC_CAMERA_Y_TOTAL + (-(_this select 2)*0.16);
+	AR_3rd_Person_Camera_Y_Move_Total = AR_FNC_CAMERA_Y_TOTAL max 20 min 160;
+	[] spawn AR_Camera_Update_Position;
+};
+
+AR_Camera_Update_Position = {
+	private ["_cam"];
+	_cam = AR_FNC_CAMERA;
+	if(!isNil "_cam") then {
+		if(AR_FNC_CAMERA_WORLD_POSITION select 2 < 0) then {
+			AR_3rd_Person_Camera_Y_Move_Total = AR_FNC_CAMERA_Y_TOTAL min AR_FNC_CAMERA_Y_TOTAL_PRIOR;
+		};
+		_cam camSetRelPos AR_FNC_CAMERA_REL_POSITION;
+		_cam camCommit 0.01;
+		AR_3rd_Person_Camera_Y_Move_Total_Prior = AR_FNC_CAMERA_Y_TOTAL;
+	};
+};
+
+AR_Get_Unit_Anchor = {
+	params ["_unit"];
+	_unit getVariable ["AR_Anchor_Attached_To_Unit",objNull];
+};
+
+// Must be executed where unit's anchor is local (or unit if no anchor exists)
+AR_Unit_Rope_Create = {
+	params ["_unit","_length"];
+	private ["_unitAnchor","_rope","_ropeEndPositions"];
+	_rope = objNull;
+	_unitAnchor = [_unit] call AR_Create_Or_Get_Unit_Anchor;
+	if(!isNull _unitAnchor) then {
+		if(!isNull attachedTo _unitAnchor) then {
+			detach _unitAnchor;
+			_rope = ropeCreate [_unitAnchor, [0,0,-1000], _length];
+			[_rope,_unitAnchor, _unit] spawn {
+				params ["_rope","_unitAnchor","_unit"];	
+				_time = diag_tickTime;
+				waitUntil {
+					// Rope won't work if you immediately attach anchor to unit. 
+					// need to wait for rope to be created first by checking rope ends
+					// or 1 second has passed.
+					_ropeEndPositions = ropeEndPosition _rope;
+					((_ropeEndPositions select 0) distance2D (_ropeEndPositions select 1)) > 0.1 || (diag_tickTime - _time) > 1;
+				};
+				_unitAnchor attachTo [_unit, [0,0,1] vectorAdd [0,0,1000]];
+			};
+		} else {
+			_rope = ropeCreate [_unitAnchor, [0,0,-1000], _length];
+		};
+	};
+	_rope;
+};
+
+AR_Attach_Rope_To_Unit_Anchor = {
+	params ["_vehicle","_rope","_unitAnchor",["_extend",0]];
+	if(local _vehicle) then {
+		if(_extend > 0) then {
+			ropeUnwind [_rope, 100, (ropeLength _rope) + _extend];
+		};
+		[_unitAnchor, [0,0,-1000], [0,0,-1]] ropeAttachTo _rope;
+		_unitAnchor setMass 80;
+	} else {
+		[_this,"AR_Attach_Rope_To_Unit_Anchor",_vehicle] call AR_RemoteExec;
+	};
+};
+
+
+AR_Unit_Leave_Rope_Chain = {
+	params ["_unit"];
+	private ["_rope","_vehicle","_cargo","_cargoAnchor"];
+	private ["_cargoUnit","_cargoRope"];
+	_unitAnchor = [_unit] call AR_Get_Unit_Anchor;
+	if(!local _unitAnchor) exitWith {
+		[_this,"AR_Unit_Leave_Rope_Chain",_unitAnchor] call AR_RemoteExec;
+	};
+	_rope = _unit getVariable ["AR_Rope_Attached_To_Unit",objNull];
+	_vehicle = ropeAttachedTo _unitAnchor;
+	_cargo = ropeAttachedObjects _unitAnchor;
+	deleteVehicle _unitAnchor;
+	_unit setVariable ["AR_Rope_Attached_To_Unit",nil,true];
+	_unit setVariable ["AR_Anchor_Attached_To_Unit",nil,true];
+	if(player == _unit) then {
+		[] call AR_Disable_3rd_Person_Camera;
+	};
+	if(count _cargo > 0) then {
+		_cargoAnchor = _cargo select 0;
+		_cargoUnit = _cargoAnchor getVariable ["AR_Anchor_Attached_To_Unit",objNull];
+		_cargoRope = _cargoUnit getVariable ["AR_Rope_Attached_To_Unit",objNull];
+		[_cargoUnit, _rope, _vehicle, ropeLength _cargoRope] call AR_Attach_Rope_To_Unit;
+	};
+};
+
+AR_Detach_Rope_From_Unit_Anchor = {
+	params ["_rope","_unitAnchor"];
+	if(local _unitAnchor) then {
+		_unitAnchor ropeDetach _rope;
+	} else {
+		[_this,"AR_Detach_Rope_From_Unit_Anchor",_unitAnchor] call AR_RemoteExec;
+	};
+};
+
+AR_Detach_Rope_From_Unit = {
+	params ["_unit"];
+	private ["_unitAnchor","_rope","_cargo"];
+	if(!local _unit) exitWith {
+		[_this,"AR_Detach_Rope_From_Unit",_unit] call AR_RemoteExec;
+	};
+	_unitAnchor = [_unit] call AR_Get_Unit_Anchor;
+	_rope = _unit getVariable ["AR_Rope_Attached_To_Unit",objNull];
+	if(!isNull _unitAnchor && !isNull _rope) then {
+		_cargo = ropeAttachedObjects _unitAnchor;
+		if(count _cargo > 0) then {
+			[_rope,_unitAnchor] call AR_Detach_Rope_From_Unit_Anchor;
+			_unit setVariable ["AR_Rope_Attached_To_Unit",nil,true];
+		} else {
+			deleteVehicle _unitAnchor;
+			_unit setVariable ["AR_Rope_Attached_To_Unit",nil,true];
+			_unit setVariable ["AR_Anchor_Attached_To_Unit",nil,true];
+		};
+		if(player == _unit) then {
+			[] call AR_Disable_3rd_Person_Camera;
+		};
+	};
+};
+
+AR_Simulate_Unit_Rope_Attachment = {
+	params ["_unit"];
+	private ["_lastUnitSetPosTime","_lastUnitPosition","_currentUnitPosition"];
+	private ["_unitAnchor","_allRopes","_vehicleRope"];
+	private ["_unitInAir","_ropeEnds","_ropeLength"];
+	if(!local _unit) exitWith {
+		[_this,"AR_Simulate_Unit_Rope_Attachment",_unit] call AR_RemoteExec;
+	};
+	if(_unit getVariable ["AR_Unit_Rope_Simulation_Running",false]) exitWith {};
+	_unit setVariable ["AR_Unit_Rope_Simulation_Running",true];
+	_lastUnitSetPosTime = -1;
+	_lastUnitPosition = getPosASL _unit;
+	while {true} do {
+		if(!local _unit) exitWith {
+			_unit allowDamage true;
+			_unit setVariable ["AR_Unit_Rope_Simulation_Running",false];
+			[_this,"AR_Simulate_Unit_Rope_Attachment",_unit] call AR_RemoteExec;
+		};
+		if(!alive _unit) exitWith {
+			[_unit] call AR_Unit_Leave_Rope_Chain;
+			_unit setVariable ["AR_Unit_Rope_Simulation_Running",false];
+		};
+		_currentUnitPosition = getPosASL _unit;
+		_unitAnchor = [_unit] call AR_Get_Unit_Anchor;
+		if(isNull _unitAnchor) exitWith {
+			_unit allowDamage true;
+			_unit setVariable ["AR_Unit_Rope_Simulation_Running",false];
+		};
+		_allRopes = ropes _unitAnchor;
+		if(isNil "_allRopes") then {
+			_allRopes = [];
+		};
+		_vehicleRope = _unit getVariable ["AR_Rope_Attached_To_Unit",objNull];
+		if(!isNull _vehicleRope) then {
+			_allRopes pushBack _vehicleRope;
+		};
+		if(count _allRopes == 0) exitWith {
+			_unit allowDamage true;
+			_unit setVariable ["AR_Unit_Rope_Simulation_Running",false];
+		};
+		_unitInAir = _unit getVariable ["AR_Rope_Unit_In_Air",false];
+		if(!_unitInAir) then {
+			{
+				_rope = _x;
+				_ropeEnds = ropeEndPosition _rope;
+				_ropeLength = ropeLength _rope;
+				_unitEnd = (_ropeEnds select 0);
+				_vehicleEnd = (_ropeEnds select 1);
+				_vehicleEnd = ASLtoAGL _vehicleEnd;
+				_vehicleEnd set [2, (_vehicleEnd select 2) max 0];
+				_vehicleEnd = AGLToASL _vehicleEnd;
+				if(_currentUnitPosition distance _unitEnd > _currentUnitPosition distance _vehicleEnd) then {
+					_unitEnd = (_ropeEnds select 1);
+					_vehicleEnd = (_ropeEnds select 0);
+				};		
+				if(_unitEnd distance _vehicleEnd > _ropeLength && ((getPos _unit) select 2) < 0.1) then {
+					if( _lastUnitPosition distance _currentUnitPosition > 0.01 && _currentUnitPosition distance _vehicleEnd > _lastUnitPosition distance _vehicleEnd ) then {
+						_unit allowDamage false;
+						_unit setPosASL _lastUnitPosition;
+						_lastUnitSetPosTime = diag_tickTime;
+					};
+				};
+				if(_rope == _vehicleRope) then {
+					_playerInAir = _unitEnd distance _vehicleEnd > _ropeLength + 2 && (ASLtoAGL _vehicleEnd select 2) > 5;
+					_playerInAir = _playerInAir || ( _unitEnd distance _vehicleEnd > _ropeLength && (ASLtoAGL _vehicleEnd select 2) > 5 && ((getPos _unit) select 2) > 1);
+					if(_playerInAir) then {
+						_unit allowDamage false;
+						_lastUnitSetPosTime = diag_tickTime;
+						detach _unitAnchor;
+						_unit attachTo [_unitAnchor, [0,0,-1] vectorAdd [0,0,-1000]];
+						_unit switchMove "HubSittingChairC_idle1";
+						if(player == _unit) then {
+							[_unit] spawn AR_Enable_3rd_Person_Camera;
+						};
+						_unit setVariable ["AR_Rope_Unit_In_Air",true,true];
+						sleep 2;
+					};
+				};
+			} forEach _allRopes;
+		} else {
+			_unitPos = getPos _unit;
+			if(_unitPos select 2 <= 0) then {
+				_unit allowDamage false;
+				_lastUnitSetPosTime = diag_tickTime;
+				detach _unit;
+				_unitAnchor attachTo [_unit, [0,0,1] vectorAdd [0,0,1000]];
+				_unitStartASLIntersect = (getPosASL _unit) vectorAdd [0,0,2];
+				_unitEndASLIntersect = [_unitStartASLIntersect select 0, _unitStartASLIntersect select 1, (_unitStartASLIntersect select 2) - 7];
+				_surfaces = lineIntersectsSurfaces [_unitStartASLIntersect, _unitEndASLIntersect, _unit, objNull, true, 10];
+				_intersectionASL = [];
+				{
+					scopeName "surfaceLoop";
+					_intersectionObject = _x select 2;
+					_objectFileName = str _intersectionObject;
+					if((_objectFileName find " t_") == -1 && (_objectFileName find " b_") == -1) then {
+						_intersectionASL = _x select 0;
+						breakOut "surfaceLoop";
+					};
+				} forEach _surfaces;
+				if(count _intersectionASL != 0) then {
+					_unit setPosASL _intersectionASL;
+					systemChat str [_unit, 2, _intersectionASL];
+				};			
+				_unit switchMove "";
+				if(player == _unit) then {
+					[] spawn AR_Disable_3rd_Person_Camera;
+				};
+				_unit setVariable ["AR_Rope_Unit_In_Air",false,true];
+				_maxRopeExtend = 0;
+				{
+					_maxRopeExtend = _maxRopeExtend max (ropeLength _x);
+				} forEach (_allRopes - [_vehicleRope]);
+				_maxRopeExtend = _maxRopeExtend min 3;
+				ropeUnwind [_vehicleRope, 4, (ropeLength _vehicleRope) + _maxRopeExtend];
+				sleep 2;
+			};
+		};
+		if(_lastUnitSetPosTime > 0 && diag_tickTime -_lastUnitSetPosTime > 5) then {
+			_unit allowDamage true;
+			_lastUnitSetPosTime = -1;
+		};
+		_lastUnitPosition = getPosASL _unit;
+		sleep 0.01;
+	};
+};
+
+AR_Create_Or_Get_Unit_Anchor = {
+	params ["_unit"];
+	private ["_unitAnchor","_unitPosition","_unitAnchorPosition","_unitAnchorHeight"];
+	_unitAnchor = [_unit] call AR_Get_Unit_Anchor;
+	if(isNull _unitAnchor) then {
+		_unitAnchorHeight = 1000;
+		_unitPosition = getPos _unit;
+		_unitAnchorPosition = _unitPosition vectorAdd [0,0,_unitAnchorHeight];
+		_unitAnchor =  createVehicle ["B_static_AA_F", _unitAnchorPosition, [], 0, "CAN_COLLIDE"];
+		_unitAnchor allowDamage false;
+		_unitAnchor setCenterOfMass [0,0,-_unitAnchorHeight];
+		_unitAnchor attachTo [_unit, [0,0,1] vectorAdd [0,0,_unitAnchorHeight]];
+		_unitAnchor setVariable ["AR_Anchor_Attached_To_Unit",_unit,true];
+		_unit setVariable ["AR_Anchor_Attached_To_Unit",_unitAnchor,true];
+	};
+	_unitAnchor;
+};
+
+AR_Attach_Rope_To_Unit = {
+	params ["_unit","_rope","_vehicle",["_extend",0]];
+	private ["_unitAnchor","_vehicleAnchor"];
+	if(!local _unit) exitWith {
+		[_this,"AR_Attach_Rope_To_Unit",_unit] call AR_RemoteExec;
+	};
+	[_unit] call AR_Detach_Rope_From_Unit;
+	_unitAnchor = [_unit] call AR_Create_Or_Get_Unit_Anchor;
+	_vehicleAnchor = _vehicle getVariable ["AR_Anchor_Attached_To_Unit",objNull];
+	if(!isNull _vehicleAnchor) then {
+		_vehicle = _vehicleAnchor;
+	};
+	_unit setVariable ["AR_Rope_Attached_To_Unit",_rope,true];
+	_unit setVariable ["AR_Rope_Unit_In_Air",false,true];
+	[_vehicle,_rope,_unitAnchor,_extend] call AR_Attach_Rope_To_Unit_Anchor;
+	[_unit] spawn AR_Simulate_Unit_Rope_Attachment;
+};
+
 AR_Has_Addon_Animations_Installed = {
 	(count getText ( configFile / "CfgMovesBasic" / "ManActions" / "AR_01" )) > 0;
 };
@@ -361,37 +710,17 @@ AR_Client_Rappel_From_Heli = {
 		_playerStartPosition set [0,(_playerStartPosition select 0) - ((((random 100)-50))/25)];
 		_player setPosWorld _playerStartPosition;
 
-		_anchor = "Land_Can_V2_F" createVehicle position _player;
-		_anchor allowDamage false;
-		hideObject _anchor;
-		[[_anchor],"AR_Hide_Object_Global"] call AR_RemoteExecServer;
-		_anchor attachTo [_heli,_rappelPoint];
+		// Start rappelling
+		_ropeLength = 65;
+		_bottomRopeLength = _ropeLength - 2;
+		_topRopeLength = 2;
+		_topRope = ropeCreate [_heli, _rappelPoint, _topRopeLength]; 
+		[_player, _topRope, _heli] call AR_Attach_Rope_To_Unit;
+		_bottomRope = [_player,_bottomRopeLength] call AR_Unit_Rope_Create;
 		
-		_rappelDevice = "B_static_AA_F" createVehicle position _player;
-		_rappelDevice setPosWorld _playerStartPosition;
-		_rappelDevice allowDamage false;
-		hideObject _rappelDevice;
-		[[_rappelDevice],"AR_Hide_Object_Global"] call AR_RemoteExecServer;
-		
-		[[_player,_rappelDevice,_anchor],"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
-		
-		_bottomRopeLength = 60;
-		_bottomRope = ropeCreate [_rappelDevice, [-0.15,0,0], _bottomRopeLength];
-		_bottomRope allowDamage false;
-		_topRopeLength = 3;
-		_topRope = ropeCreate [_rappelDevice, [0,0.15,0], _anchor, [0, 0, 0], _topRopeLength];
-		_topRope allowDamage false;
+		//[[_player,_rappelDevice,_anchor],"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
+		//[_player] spawn AR_Enable_Rappelling_Animation_Client;
 
-		[_player] spawn AR_Enable_Rappelling_Animation_Client;
-		
-		_gravityAccelerationVec = [0,0,-9.8];
-		_velocityVec = [0,0,0];
-		_lastTime = diag_tickTime;
-		_lastPosition = AGLtoASL (_rappelDevice modelToWorldVisual [0,0,0]);
-		_lookDirFreedom = 50;
-		_dir = (random 360) + (_lookDirFreedom / 2);
-		_dirSpinFactor = (((random 10) - 5) / 5) max 0.1;
-		
 		_ropeKeyDownHandler = -1;
 		_ropeKeyUpHandler = -1;
 		if(_player == player) then {
@@ -446,7 +775,7 @@ AR_Client_Rappel_From_Heli = {
 			};
 		};
 		
-
+		_lastTime = diag_tickTime;
 		
 		while {true} do {
 		
@@ -456,124 +785,35 @@ AR_Client_Rappel_From_Heli = {
 			if(_timeSinceLastUpdate > 1) then {
 				_timeSinceLastUpdate = 0;
 			};
-
-			_environmentWindVelocity = wind;
-			_playerWindVelocity = _velocityVec vectorMultiply -1;
-			_helicopterWindVelocity = (vectorUp _heli) vectorMultiply -30;
-			_totalWindVelocity = _environmentWindVelocity vectorAdd _playerWindVelocity vectorAdd _helicopterWindVelocity;
-			_totalWindForce = _totalWindVelocity vectorMultiply (9.8/53);
-
-			_accelerationVec = _gravityAccelerationVec vectorAdd _totalWindForce;
-			_velocityVec = _velocityVec vectorAdd ( _accelerationVec vectorMultiply _timeSinceLastUpdate );
-			_newPosition = _lastPosition vectorAdd ( _velocityVec vectorMultiply _timeSinceLastUpdate );
-			
-			_heliPos = AGLtoASL (_heli modelToWorldVisual _rappelPoint);
-			
-			if(_newPosition distance _heliPos > _topRopeLength) then {
-				_newPosition = (_heliPos) vectorAdd (( vectorNormalized ( (_heliPos) vectorFromTo _newPosition )) vectorMultiply _topRopeLength);
-				_surfaceVector = ( vectorNormalized ( _newPosition vectorFromTo (_heliPos) ));
-				_velocityVec = _velocityVec vectorAdd (( _surfaceVector vectorMultiply (_velocityVec vectorDotProduct _surfaceVector)) vectorMultiply -1);
-			};
-
-			_rappelDevice setPosWorld (_lastPosition vectorAdd ((_newPosition vectorDiff _lastPosition) vectorMultiply 6));
-			
-			_rappelDevice setVectorDir (vectorDir _player); 
-			_player setPosWorld [_newPosition select 0, _newPosition select 1, (_newPosition select 2)-0.6];
-			_player setVelocity [0,0,0];
-			
+					
 			// Handle rappelling down rope
-			if(_player getVariable ["AR_DECEND_PRESSED",false]) then {
-				_decendSpeedMetersPerSecond = 3.5;
+			if(_player getVariable ["AR_DECEND_PRESSED",false] && _player getVariable ["AR_Rope_Unit_In_Air",false]) then {
+				_decendSpeedMetersPerSecond = 3;
 				if(_player getVariable ["AR_FAST_DECEND_PRESSED",false]) then {
-					_decendSpeedMetersPerSecond = 5;
+					_decendSpeedMetersPerSecond = 4.5;
 				};
 				_decendSpeedMetersPerSecond = _decendSpeedMetersPerSecond + (_player getVariable ["AR_RANDOM_DECEND_SPEED_ADJUSTMENT",0]);
-				_bottomRopeLength = _bottomRopeLength - (_timeSinceLastUpdate * _decendSpeedMetersPerSecond);
-				_topRopeLength = _topRopeLength + (_timeSinceLastUpdate * _decendSpeedMetersPerSecond);
+				_bottomRopeLength = (_bottomRopeLength - (_timeSinceLastUpdate * _decendSpeedMetersPerSecond)) max 1;
+				_topRopeLength = (_topRopeLength + (_timeSinceLastUpdate * _decendSpeedMetersPerSecond)) min (_ropeLength-1);
 				ropeUnwind [_topRope, _decendSpeedMetersPerSecond, _topRopeLength - 0.5];
 				ropeUnwind [_bottomRope, _decendSpeedMetersPerSecond, _bottomRopeLength];
 			};
 			
-			// Fix player direction
-			_dir = _dir + ((360/1000) * _dirSpinFactor);
-			if(isPlayer _player) then {
-				_currentDir = getDir _player;
-				_minDir = (_dir - (_lookDirFreedom/2)) mod 360;
-				_maxDir = (_dir + (_lookDirFreedom/2)) mod 360;
-				_minDegreesToMax = 0;
-				_minDegreesToMin = 0;
-				if( _currentDir > _maxDir ) then {
-					_minDegreesToMax = (_currentDir - _maxDir) min (360 - _currentDir + _maxDir);
-				};
-				if( _currentDir < _maxDir ) then {
-					_minDegreesToMax = (_maxDir - _currentDir) min (360 - _maxDir + _currentDir);
-				};
-				if( _currentDir > _minDir ) then {
-					_minDegreesToMin = (_currentDir - _minDir) min (360 - _currentDir + _minDir);
-				};
-				if( _currentDir < _minDir ) then {
-					_minDegreesToMin = (_minDir - _currentDir) min (360 - _minDir + _currentDir);
-				};
-				if( _minDegreesToMin > _lookDirFreedom || _minDegreesToMax > _lookDirFreedom ) then {
-					if( _minDegreesToMin < _minDegreesToMax ) then {
-						_player setDir _minDir;
-					} else {
-						_player setDir _maxDir;
-					};
-				} else {
-					_player setDir (_currentDir  + ((360/1000) * _dirSpinFactor));
-				};
-			} else {
-				_player setDir _dir;
+			if!(_player setVariable ["AR_Unit_Rope_Simulation_Running",false]) exitWith {};
+			
+			if(_player getVariable ["AR_Detach_Rope",false]) exitWith {
+				[_player] call AR_Unit_Leave_Rope_Chain;
 			};
 			
-			_lastPosition = _newPosition;
-			
-			if((getPos _player) select 2 < 1 || !alive _player || vehicle _player != _player || _bottomRopeLength <= 1 || _player getVariable ["AR_Detach_Rope",false] ) exitWith {};
-
-			sleep 0.01;
-		};
-				
-		if(_bottomRopeLength > 1 && alive _player && vehicle _player == _player) then {
-		
-			_playerStartASLIntersect = getPosASL _player;
-			_playerEndASLIntersect = [_playerStartASLIntersect select 0, _playerStartASLIntersect select 1, (_playerStartASLIntersect select 2) - 5];
-			_surfaces = lineIntersectsSurfaces [_playerStartASLIntersect, _playerEndASLIntersect, _player, objNull, true, 10];
-			_intersectionASL = [];
-			{
-				scopeName "surfaceLoop";
-				_intersectionObject = _x select 2;
-				_objectFileName = str _intersectionObject;
-				if((_objectFileName find " t_") == -1 && (_objectFileName find " b_") == -1) then {
-					_intersectionASL = _x select 0;
-					breakOut "surfaceLoop";
-				};
-			} forEach _surfaces;
-			
-			if(count _intersectionASL != 0) then {
-				_player allowDamage false;
-				_player setPosASL _intersectionASL;
-			};		
-
-			if(_player getVariable ["AR_Detach_Rope",false]) then {
-				// Player detached from rope. Don't prevent damage 
-				// if we didn't find a position on the ground
-				if(count _intersectionASL == 0) then {
-					_player allowDamage true;
-				};	
+			if( not (_player getVariable ["AR_Rope_Unit_In_Air",false]) && !isPlayer _player && (getPos _player) select 2 < 1 ) exitWith {
+				[_player] call AR_Unit_Leave_Rope_Chain;
 			};
 			
-			// Allow damage if you get out of a heli with no engine on
-			if(!isEngineOn _heli) then {
-				_player allowDamage true;
-			};
-			
+			sleep 0.3;
 		};
 		
 		ropeDestroy _topRope;
 		ropeDestroy _bottomRope;		
-		deleteVehicle _anchor;
-		deleteVehicle _rappelDevice;
 		
 		_player setVariable ["AR_Is_Rappelling",nil,true];
 		_player setVariable ["AR_Rappelling_Vehicle", nil, true];
@@ -587,10 +827,6 @@ AR_Client_Rappel_From_Heli = {
 			(findDisplay 46) displayRemoveEventHandler ["KeyUp", _ropeKeyUpHandler];
 		};
 		
-		sleep 2;
-		
-		_player allowDamage true;	
-
 	} else {
 		[_this,"AR_Client_Rappel_From_Heli",_player] call AR_RemoteExec;
 	};
