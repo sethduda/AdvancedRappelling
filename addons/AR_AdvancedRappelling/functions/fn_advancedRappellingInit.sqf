@@ -495,22 +495,22 @@ AR_Play_Rappelling_Sounds_Global = {
 };
 
 AR_Play_Rappelling_Sounds = {
-	params ["_player","_rappelDevice","_rappelAncor"];
+	params ["_player","_heli"];
 	if(!hasInterface || !(call AR_Has_Addon_Sounds_Installed) ) exitWith {};
 	if(player distance _player < 15) then {
 		[_player, "AR_Rappel_Start"] call AR_Play_3D_Sound;
-		[_rappelDevice, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
+		[_player, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
 	};
 	_this spawn {
-		params ["_player","_rappelDevice","_rappelAncor"];
+		params ["_player","_heli"];
 		private ["_lastDistanceFromAnchor","_distanceFromAnchor"];
-		_lastDistanceFromAnchor = _rappelDevice distance _rappelAncor;
+		_lastDistanceFromAnchor = _player distance _heli;
 		while {_player getVariable ["AR_Is_Rappelling",false]} do {
-			_distanceFromAnchor = _rappelDevice distance _rappelAncor;
+			_distanceFromAnchor = _player distance _heli;
 			if(_distanceFromAnchor > _lastDistanceFromAnchor + 1 && player distance _player < 15) then {
 				[_player, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
 				sleep 0.2;
-				[_rappelDevice, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
+				[_player, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
 			};
 			sleep 0.9;
 			_lastDistanceFromAnchor = _distanceFromAnchor;
@@ -710,7 +710,6 @@ AR_Client_Rappel_From_Heli = {
 		_playerStartPosition set [0,(_playerStartPosition select 0) - ((((random 100)-50))/25)];
 		_player setPosWorld _playerStartPosition;
 
-		// Start rappelling
 		_ropeLength = 65;
 		_bottomRopeLength = _ropeLength - 2;
 		_topRopeLength = 2;
@@ -718,8 +717,8 @@ AR_Client_Rappel_From_Heli = {
 		[_player, _topRope, _heli] call AR_Attach_Rope_To_Unit;
 		_bottomRope = [_player,_bottomRopeLength] call AR_Unit_Rope_Create;
 		
-		//[[_player,_rappelDevice,_anchor],"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
-		//[_player] spawn AR_Enable_Rappelling_Animation_Client;
+		[[_player,_heli],"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
+		[_player] spawn AR_Enable_Rappelling_Animation_Client;
 
 		_ropeKeyDownHandler = -1;
 		_ropeKeyUpHandler = -1;
@@ -806,6 +805,7 @@ AR_Client_Rappel_From_Heli = {
 			};
 			
 			if( not (_player getVariable ["AR_Rope_Unit_In_Air",false]) && !isPlayer _player && (getPos _player) select 2 < 1 ) exitWith {
+				sleep 2;
 				[_player] call AR_Unit_Leave_Rope_Chain;
 			};
 			
@@ -816,7 +816,6 @@ AR_Client_Rappel_From_Heli = {
 		ropeDestroy _bottomRope;		
 		
 		_player setVariable ["AR_Is_Rappelling",nil,true];
-		_player setVariable ["AR_Rappelling_Vehicle", nil, true];
 		_player setVariable ["AR_Detach_Rope",nil];
 		
 		if(_ropeKeyDownHandler != -1) then {			
@@ -848,125 +847,21 @@ AR_Current_Weapon_Type_Selected = {
 
 AR_Enable_Rappelling_Animation_Client = {
 	params ["_player",["_globalExec",false]];
-	
 	if(local _player && _globalExec) exitWith {};
-	
 	if(local _player && !_globalExec) then {
 		[[_player],"AR_Enable_Rappelling_Animation"] call AR_RemoteExecServer;
 	};
-
-	if(_player != player) then {
-		_player enableSimulation false;
-	};
-	
 	if(call AR_Has_Addon_Animations_Installed) then {		
 		if([_player] call AR_Current_Weapon_Type_Selected == "HANDGUN") then {
-			if(local _player) then {
-				if(missionNamespace getVariable ["AR_DISABLE_SHOOTING_OVERRIDE",false]) then {
-					_player switchMove "AR_01_Idle_Pistol_No_Actions";
-				} else {
-					_player switchMove "AR_01_Idle_Pistol";
-				};
-				_player setVariable ["AR_Animation_Move","AR_01_Idle_Pistol_No_Actions",true];
-			} else {
-				_player setVariable ["AR_Animation_Move","AR_01_Idle_Pistol_No_Actions"];			
-			};
+			_player switchMove "AR_01_Idle_Pistol";
 		} else {
-			if(local _player) then {
-				if(missionNamespace getVariable ["AR_DISABLE_SHOOTING_OVERRIDE",false]) then {
-					_player switchMove "AR_01_Idle_No_Actions";
-				} else {
-					_player switchMove "AR_01_Idle";
-				};
-				_player setVariable ["AR_Animation_Move","AR_01_Idle_No_Actions",true];
-			} else {
-				_player setVariable ["AR_Animation_Move","AR_01_Idle_No_Actions"];
-			};
-		};
-		if!(local _player) then {
-			// Temp work around to avoid seeing other player as standing
-			_player switchMove (_player getVariable ["AR_Animation_Move","HubSittingChairC_idle1"]);
-			sleep 1;
-			_player switchMove (_player getVariable ["AR_Animation_Move","HubSittingChairC_idle1"]);
-			sleep 1;
-			_player switchMove (_player getVariable ["AR_Animation_Move","HubSittingChairC_idle1"]);
-			sleep 1;
-			_player switchMove (_player getVariable ["AR_Animation_Move","HubSittingChairC_idle1"]);
+			_player switchMove "AR_01_Idle";
 		};
 	} else {
-		if(local _player) then {
-			_player switchMove "HubSittingChairC_idle1";
-			_player setVariable ["AR_Animation_Move","HubSittingChairC_idle1",true];
-		} else {
-			_player setVariable ["AR_Animation_Move","HubSittingChairC_idle1"];		
-		};
+		_player switchMove "HubSittingChairC_idle1";
 	};
-
-	_animationEventHandler = -1;
-	if(local _player) then {
-		_animationEventHandler = _player addEventHandler ["AnimChanged",{
-			params ["_player","_animation"];
-			if(call AR_Has_Addon_Animations_Installed) then {
-				if((toLower _animation) find "ar_" < 0) then {
-					if([_player] call AR_Current_Weapon_Type_Selected == "HANDGUN") then {
-						_player switchMove "AR_01_Aim_Pistol";
-						_player setVariable ["AR_Animation_Move","AR_01_Aim_Pistol_No_Actions",true];
-					} else {
-						_player switchMove "AR_01_Aim";
-						_player setVariable ["AR_Animation_Move","AR_01_Aim_No_Actions",true];
-					};
-				} else {
-					if(toLower _animation == "ar_01_aim") then {
-						_player setVariable ["AR_Animation_Move","AR_01_Aim_No_Actions",true];
-					};
-					if(toLower _animation == "ar_01_idle") then {
-						_player setVariable ["AR_Animation_Move","AR_01_Idle_No_Actions",true];
-					};
-					if(toLower _animation == "ar_01_aim_pistol") then {
-						_player setVariable ["AR_Animation_Move","AR_01_Aim_Pistol_No_Actions",true];
-					};
-					if(toLower _animation == "ar_01_idle_pistol") then {
-						_player setVariable ["AR_Animation_Move","AR_01_Idle_Pistol_No_Actions",true];
-					};
-				};
-			} else {
-				_player switchMove "HubSittingChairC_idle1";
-				_player setVariable ["AR_Animation_Move","HubSittingChairC_idle1",true];
-			};
-		}];
-	};
-	
-	if(!local _player) then {
-		[_player] spawn {
-			params ["_player"];
-			private ["_currentState"];
-			while {_player getVariable ["AR_Is_Rappelling",false]} do {
-				_currentState = toLower animationState _player;
-				_newState = toLower (_player getVariable ["AR_Animation_Move",""]);
-				if!(call AR_Has_Addon_Animations_Installed) then {
-					_newState = "HubSittingChairC_idle1";
-				};
-				if(_currentState != _newState) then {
-					_player switchMove _newState;
-					_player switchGesture "";
-					sleep 1;
-					_player switchMove _newState;
-					_player switchGesture "";
-				};
-				sleep 0.1;
-			};			
-		};
-	};
-	
 	waitUntil {!(_player getVariable ["AR_Is_Rappelling",false])};
-	
-	if(_animationEventHandler != -1) then {
-		_player removeEventHandler ["AnimChanged", _animationEventHandler];
-	};
-	
-	_player switchMove "";	
-	_player enableSimulation true;
-	
+	_player switchMove "";		
 };
 
 AR_Rappel_Detach_Action = {
