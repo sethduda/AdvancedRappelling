@@ -142,23 +142,21 @@ AR_Unit_Rope_Create = {
 };
 
 AR_Attach_Rope_To_Unit_Anchor = {
-	params ["_vehicle","_rope","_unitAnchor",["_extend",0]];
-	if(local _vehicle) then {
-		if(_extend > 0) then {
-			ropeUnwind [_rope, 100, (ropeLength _rope) + _extend];
-		};
-		[_unitAnchor, [0,0,-1000], [0,0,-1]] ropeAttachTo _rope;
-		_unitAnchor setMass 80;
-	} else {
-		[_this,"AR_Attach_Rope_To_Unit_Anchor",_vehicle] call AR_RemoteExec;
+	params ["_rope","_unitAnchor",["_extend",0]];
+	if(!local _rope) exitWith {
+		[_this,"AR_Attach_Rope_To_Unit_Anchor",_rope] call AR_RemoteExec;
 	};
+	if(_extend > 0) then {
+		ropeUnwind [_rope, 100, (ropeLength _rope) + _extend];
+	};
+	[_unitAnchor, [0,0,-1000], [0,0,-1]] ropeAttachTo _rope;
+	_unitAnchor setMass 80;
 };
-
 
 AR_Unit_Leave_Rope_Chain = {
 	params ["_unit"];
 	private ["_rope","_vehicle","_cargo","_cargoAnchor"];
-	private ["_cargoUnit","_cargoRope"];
+	private ["_cargoUnit","_cargoRope","_unitAnchor"];
 	_unitAnchor = [_unit] call AR_Get_Unit_Anchor;
 	if(!local _unitAnchor) exitWith {
 		[_this,"AR_Unit_Leave_Rope_Chain",_unitAnchor] call AR_RemoteExec;
@@ -166,26 +164,23 @@ AR_Unit_Leave_Rope_Chain = {
 	_rope = _unit getVariable ["AR_Rope_Attached_To_Unit",objNull];
 	_vehicle = ropeAttachedTo _unitAnchor;
 	_cargo = ropeAttachedObjects _unitAnchor;
-	deleteVehicle _unitAnchor;
-	_unit setVariable ["AR_Rope_Attached_To_Unit",nil,true];
-	_unit setVariable ["AR_Anchor_Attached_To_Unit",nil,true];
-	if(player == _unit) then {
-		[] call AR_Disable_3rd_Person_Camera;
-	};
 	if(count _cargo > 0) then {
 		_cargoAnchor = _cargo select 0;
 		_cargoUnit = _cargoAnchor getVariable ["AR_Anchor_Attached_To_Unit",objNull];
 		_cargoRope = _cargoUnit getVariable ["AR_Rope_Attached_To_Unit",objNull];
 		[_cargoUnit, _rope, _vehicle, ropeLength _cargoRope] call AR_Attach_Rope_To_Unit;
 	};
+	deleteVehicle _unitAnchor;
+	_unit setVariable ["AR_Rope_Attached_To_Unit",nil,true];
+	_unit setVariable ["AR_Anchor_Attached_To_Unit",nil,true];
 };
 
 AR_Detach_Rope_From_Unit_Anchor = {
 	params ["_rope","_unitAnchor"];
-	if(local _unitAnchor) then {
+	if(local _rope) then {
 		_unitAnchor ropeDetach _rope;
 	} else {
-		[_this,"AR_Detach_Rope_From_Unit_Anchor",_unitAnchor] call AR_RemoteExec;
+		[_this,"AR_Detach_Rope_From_Unit_Anchor",_rope] call AR_RemoteExec;
 	};
 };
 
@@ -207,10 +202,16 @@ AR_Detach_Rope_From_Unit = {
 			_unit setVariable ["AR_Rope_Attached_To_Unit",nil,true];
 			_unit setVariable ["AR_Anchor_Attached_To_Unit",nil,true];
 		};
-		if(player == _unit) then {
-			[] call AR_Disable_3rd_Person_Camera;
-		};
 	};
+};
+
+AR_Simulate_Unit_Rope_Attachment_Terminated = {
+	params ["_unit"];
+	_unit allowDamage true;
+	if(player == _unit) then {
+		[_unit] spawn AR_Disable_3rd_Person_Camera;
+	};
+	_unit setVariable ["AR_Unit_Rope_Simulation_Running",false];
 };
 
 AR_Simulate_Unit_Rope_Attachment = {
@@ -227,19 +228,17 @@ AR_Simulate_Unit_Rope_Attachment = {
 	_lastUnitPosition = getPosASL _unit;
 	while {true} do {
 		if(!local _unit) exitWith {
-			_unit allowDamage true;
-			_unit setVariable ["AR_Unit_Rope_Simulation_Running",false];
+			[_unit] call AR_Simulate_Unit_Rope_Attachment_Terminated;
 			[_this,"AR_Simulate_Unit_Rope_Attachment",_unit] call AR_RemoteExec;
 		};
 		if(!alive _unit) exitWith {
 			[_unit] call AR_Unit_Leave_Rope_Chain;
-			_unit setVariable ["AR_Unit_Rope_Simulation_Running",false];
+			[_unit] call AR_Simulate_Unit_Rope_Attachment_Terminated;
 		};
 		_currentUnitPosition = getPosASL _unit;
 		_unitAnchor = [_unit] call AR_Get_Unit_Anchor;
 		if(isNull _unitAnchor) exitWith {
-			_unit allowDamage true;
-			_unit setVariable ["AR_Unit_Rope_Simulation_Running",false];
+			[_unit] call AR_Simulate_Unit_Rope_Attachment_Terminated;
 		};
 		_allRopes = ropes _unitAnchor;
 		if(isNil "_allRopes") then {
@@ -250,8 +249,8 @@ AR_Simulate_Unit_Rope_Attachment = {
 			_allRopes pushBack _vehicleRope;
 		};
 		if(count _allRopes == 0) exitWith {
-			_unit allowDamage true;
-			_unit setVariable ["AR_Unit_Rope_Simulation_Running",false];
+			[_unit] call AR_Unit_Leave_Rope_Chain;
+			[_unit] call AR_Simulate_Unit_Rope_Attachment_Terminated;
 		};
 		_unitInAir = _unit getVariable ["AR_Rope_Unit_In_Air",false];
 		if(!_unitInAir) then {
@@ -283,6 +282,7 @@ AR_Simulate_Unit_Rope_Attachment = {
 						_lastUnitSetPosTime = diag_tickTime;
 						detach _unitAnchor;
 						_unit attachTo [_unitAnchor, [0,0,-1] vectorAdd [0,0,-1000]];
+						// TODO: Animation switch needs to be global
 						_unit switchMove "HubSittingChairC_idle1";
 						if(player == _unit) then {
 							[_unit] spawn AR_Enable_3rd_Person_Camera;
@@ -316,17 +316,25 @@ AR_Simulate_Unit_Rope_Attachment = {
 					_unit setPosASL _intersectionASL;
 					systemChat str [_unit, 2, _intersectionASL];
 				};			
+				
+				// TODO: Animation switch needs to be global
 				_unit switchMove "";
+				
 				if(player == _unit) then {
 					[] spawn AR_Disable_3rd_Person_Camera;
 				};
 				_unit setVariable ["AR_Rope_Unit_In_Air",false,true];
+				
+				// TODO: Should provide way of defining if the attachment is fixed to the rope or not
+				//  also needs to move to function that runs on rope owner client
 				_maxRopeExtend = 0;
 				{
 					_maxRopeExtend = _maxRopeExtend max (ropeLength _x);
 				} forEach (_allRopes - [_vehicleRope]);
 				_maxRopeExtend = _maxRopeExtend min 3;
 				ropeUnwind [_vehicleRope, 4, (ropeLength _vehicleRope) + _maxRopeExtend];
+				
+				
 				sleep 2;
 			};
 		};
@@ -371,12 +379,12 @@ AR_Attach_Rope_To_Unit = {
 	};
 	_unit setVariable ["AR_Rope_Attached_To_Unit",_rope,true];
 	_unit setVariable ["AR_Rope_Unit_In_Air",false,true];
-	[_vehicle,_rope,_unitAnchor,_extend] call AR_Attach_Rope_To_Unit_Anchor;
+	[_rope,_unitAnchor,_extend] call AR_Attach_Rope_To_Unit_Anchor;
 	[_unit] spawn AR_Simulate_Unit_Rope_Attachment;
 };
 
 AR_Has_Addon_Animations_Installed = {
-	(count getText ( configFile / "CfgMovesBasic" / "ManActions" / "AR_01" )) > 0;
+	(count getText ( configFile / "CfgMovesMaleSdr" / "States" / "AR_01_Idle" )) > 0;
 };
 
 AR_Has_Addon_Sounds_Installed = {
@@ -713,10 +721,13 @@ AR_Client_Rappel_From_Heli = {
 		_ropeLength = 65;
 		_bottomRopeLength = _ropeLength - 2;
 		_topRopeLength = 2;
+		
+		// TODO: the rope creates need to be executed on heli owner
 		_topRope = ropeCreate [_heli, _rappelPoint, _topRopeLength]; 
 		[_player, _topRope, _heli] call AR_Attach_Rope_To_Unit;
 		_bottomRope = [_player,_bottomRopeLength] call AR_Unit_Rope_Create;
 		
+		// TODO: Sounds and animations should be moved to rope simulation script
 		[[_player,_heli],"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
 		[_player] spawn AR_Enable_Rappelling_Animation_Client;
 
@@ -794,6 +805,7 @@ AR_Client_Rappel_From_Heli = {
 				_decendSpeedMetersPerSecond = _decendSpeedMetersPerSecond + (_player getVariable ["AR_RANDOM_DECEND_SPEED_ADJUSTMENT",0]);
 				_bottomRopeLength = (_bottomRopeLength - (_timeSinceLastUpdate * _decendSpeedMetersPerSecond)) max 1;
 				_topRopeLength = (_topRopeLength + (_timeSinceLastUpdate * _decendSpeedMetersPerSecond)) min (_ropeLength-1);
+				// TODO: Rope unwinds need to happen on rope owner's client
 				ropeUnwind [_topRope, _decendSpeedMetersPerSecond, _topRopeLength - 0.5];
 				ropeUnwind [_bottomRope, _decendSpeedMetersPerSecond, _bottomRopeLength];
 			};
@@ -812,6 +824,7 @@ AR_Client_Rappel_From_Heli = {
 			sleep 0.3;
 		};
 		
+		// TODO: Needs to be executed on rope owner's machine
 		ropeDestroy _topRope;
 		ropeDestroy _bottomRope;		
 		
