@@ -226,6 +226,10 @@ AR_Simulate_Unit_Rope_Attachment = {
 	_unit setVariable ["AR_Unit_Rope_Simulation_Running",true];
 	_lastUnitSetPosTime = -1;
 	_lastUnitPosition = getPosASL _unit;
+
+	_vehicleRope = _unit getVariable ["AR_Rope_Attached_To_Unit",objNull];
+	[_player, _vehicleRope] call AR_Play_Rappelling_Sounds;
+	
 	while {true} do {
 		if(!local _unit) exitWith {
 			[_unit] call AR_Simulate_Unit_Rope_Attachment_Terminated;
@@ -282,10 +286,9 @@ AR_Simulate_Unit_Rope_Attachment = {
 						_lastUnitSetPosTime = diag_tickTime;
 						detach _unitAnchor;
 						_unit attachTo [_unitAnchor, [0,0,-1] vectorAdd [0,0,-1000]];
-						// TODO: Animation switch needs to be global
-						_unit switchMove "HubSittingChairC_idle1";
+						[_unit,true] call AR_Enable_Rappelling_Animation;						
 						if(player == _unit) then {
-							[_unit] spawn AR_Enable_3rd_Person_Camera;
+							[_unit] call AR_Enable_3rd_Person_Camera;
 						};
 						_unit setVariable ["AR_Rope_Unit_In_Air",true,true];
 						sleep 2;
@@ -314,27 +317,12 @@ AR_Simulate_Unit_Rope_Attachment = {
 				} forEach _surfaces;
 				if(count _intersectionASL != 0) then {
 					_unit setPosASL _intersectionASL;
-					systemChat str [_unit, 2, _intersectionASL];
 				};			
-				
-				// TODO: Animation switch needs to be global
-				_unit switchMove "";
-				
+				[_unit,false] call AR_Enable_Rappelling_Animation;
 				if(player == _unit) then {
-					[] spawn AR_Disable_3rd_Person_Camera;
+					[] call AR_Disable_3rd_Person_Camera;
 				};
-				_unit setVariable ["AR_Rope_Unit_In_Air",false,true];
-				
-				// TODO: Should provide way of defining if the attachment is fixed to the rope or not
-				//  also needs to move to function that runs on rope owner client
-				_maxRopeExtend = 0;
-				{
-					_maxRopeExtend = _maxRopeExtend max (ropeLength _x);
-				} forEach (_allRopes - [_vehicleRope]);
-				_maxRopeExtend = _maxRopeExtend min 3;
-				ropeUnwind [_vehicleRope, 4, (ropeLength _vehicleRope) + _maxRopeExtend];
-				
-				
+				_unit setVariable ["AR_Rope_Unit_In_Air",false,true];				
 				sleep 2;
 			};
 		};
@@ -499,22 +487,26 @@ AR_Rappel_All_Cargo = {
 };
 
 AR_Play_Rappelling_Sounds_Global = {
-	_this remoteExec ["AR_Play_Rappelling_Sounds", 0];
+	params ["_player","_vehicleRope"];
+	[_player,_vehicleRope,true] remoteExec ["AR_Play_Rappelling_Sounds", 0];
 };
 
 AR_Play_Rappelling_Sounds = {
-	params ["_player","_heli"];
+	params ["_player","_vehicleRope",["_globalExec",false]];
+	if(local _player && _globalExec) exitWith {};
+	if(local _player && !_globalExec) then {
+		[_this,"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
+	};
 	if(!hasInterface || !(call AR_Has_Addon_Sounds_Installed) ) exitWith {};
 	if(player distance _player < 15) then {
 		[_player, "AR_Rappel_Start"] call AR_Play_3D_Sound;
-		[_player, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
 	};
 	_this spawn {
-		params ["_player","_heli"];
+		params ["_player","_vehicleRope"];
 		private ["_lastDistanceFromAnchor","_distanceFromAnchor"];
-		_lastDistanceFromAnchor = _player distance _heli;
+		_lastDistanceFromAnchor = ropeLength _vehicleRope;
 		while {_player getVariable ["AR_Is_Rappelling",false]} do {
-			_distanceFromAnchor = _player distance _heli;
+			_distanceFromAnchor = ropeLength _vehicleRope;
 			if(_distanceFromAnchor > _lastDistanceFromAnchor + 1 && player distance _player < 15) then {
 				[_player, "AR_Rappel_Loop"] call AR_Play_3D_Sound;
 				sleep 0.2;
@@ -526,7 +518,7 @@ AR_Play_Rappelling_Sounds = {
 	};
 	_this spawn {
 		params ["_player"];
-		while {_player getVariable ["AR_Is_Rappelling",false]} do {
+		while {_player getVariable ["AR_Unit_Rope_Simulation_Running",false]} do {
 			sleep 0.1;
 		};
 		if(player distance _player < 15) then {
@@ -662,192 +654,247 @@ AR_Get_Heli_Rappel_Points = {
 
 AR_Rappel_From_Heli = {
 	params ["_player","_heli"];
-	if(isServer) then {
+	private ["_rappelPoints","_rappelPointIndex","_rappellingPlayer"];
 	
-		if!(_player in _heli) exitWith {};
-		if(_player getVariable ["AR_Is_Rappelling", false]) exitWith {};
-	
-		// Find next available rappel anchor
-		_rappelPoints = [_heli] call AR_Get_Heli_Rappel_Points;
-		_rappelPointIndex = 0;
-		{
-			_rappellingPlayer = _heli getVariable ["AR_Rappelling_Player_" + str _rappelPointIndex,objNull];
-			if(isNull _rappellingPlayer) exitWith {};
-			_rappelPointIndex = _rappelPointIndex + 1;
-		} forEach _rappelPoints;
-		
-		// All rappel anchors are taken by other players. Hint player to try again.
-		if(count _rappelPoints == _rappelPointIndex) exitWith {
-			if(isPlayer _player) then {
-				[["All rappel anchors in use. Please try again.", false],"AR_Hint",_player] call AR_RemoteExec;
-			};
-		};
-		
-		_heli setVariable ["AR_Rappelling_Player_" + str _rappelPointIndex,_player];
-
-		_player setVariable ["AR_Is_Rappelling",true,true];
-
-		// Start rappelling (client side)
-		[_player,_heli,_rappelPoints select _rappelPointIndex] spawn AR_Client_Rappel_From_Heli;
-		
-		// Wait for player to finish rappeling before freeing up anchor
-		[_player, _heli, _rappelPointIndex] spawn {
-			params ["_player","_heli", "_rappelPointIndex"];
-			while {true} do {
-				if(!alive _player) exitWith {};
-				if!(_player getVariable ["AR_Is_Rappelling", false]) exitWith {};
-				sleep 2;
-			};
-			_heli setVariable ["AR_Rappelling_Player_" + str _rappelPointIndex, nil];
-		};
-
-	} else {
+	if(isServer) exitWith {
 		[_this,"AR_Rappel_From_Heli",true] call AR_RemoteExecServer;
+	};
+	
+	if!(_player in _heli) exitWith {};
+	if(_player getVariable ["AR_Is_Rappelling", false]) exitWith {};
+
+	// Find next available rappel anchor
+	_rappelPoints = [_heli] call AR_Get_Heli_Rappel_Points;
+	_rappelPointIndex = 0;
+	{
+		_rappellingPlayer = _heli getVariable ["AR_Rappelling_Player_" + str _rappelPointIndex,objNull];
+		if(isNull _rappellingPlayer) exitWith {};
+		_rappelPointIndex = _rappelPointIndex + 1;
+	} forEach _rappelPoints;
+	
+	// All rappel anchors are taken by other players. Hint player to try again.
+	if(count _rappelPoints == _rappelPointIndex) exitWith {
+		if(isPlayer _player) then {
+			[["All rappel anchors in use. Please try again.", false],"AR_Hint",_player] call AR_RemoteExec;
+		};
+	};
+	
+	_heli setVariable ["AR_Rappelling_Player_" + str _rappelPointIndex,_player];
+
+	_player setVariable ["AR_Is_Rappelling",true,true];
+
+	// Start rappelling (client)
+	[_player,_heli] spawn AR_Client_Rappel_From_Heli;
+	
+	// Start rappelling (vehicle owner)
+	[_player,_heli,_rappelPoints select _rappelPointIndex] spawn AR_Vehicle_Owner_Rappel_From_Heli;
+	
+	// Wait for player to finish rappeling before freeing up anchor
+	[_player, _heli, _rappelPointIndex] spawn {
+		params ["_player","_heli", "_rappelPointIndex"];
+		while {true} do {
+			if(!alive _player) exitWith {};
+			if!(_player getVariable ["AR_Is_Rappelling", false]) exitWith {};
+			sleep 2;
+		};
+		_heli setVariable ["AR_Rappelling_Player_" + str _rappelPointIndex, nil];
+	};
+
+};
+
+AR_Vehicle_Owner_Rappel_From_Heli = {
+	params ["_player","_heli","_rappelPoint",["_ropeLength", 65],["_topRopeLength", 2]];
+	private ["_topRope","_bottomRope","_playerStartPosition"];
+	if(!local _heli) exitWith {
+		[_this,"AR_Vehicle_Owner_Rappel_From_Heli",_heli] call AR_RemoteExec;
+	};
+	moveOut _player;
+	waitUntil { vehicle _player == _player};
+	_playerStartPosition = AGLtoASL (_heli modelToWorldVisual _rappelPoint);
+	_playerStartPosition set [2,(_playerStartPosition select 2) - 1];
+	_playerStartPosition set [1,(_playerStartPosition select 1) - ((((random 100)-50))/25)];
+	_playerStartPosition set [0,(_playerStartPosition select 0) - ((((random 100)-50))/25)];
+	_player setPosWorld _playerStartPosition;
+	_topRope = ropeCreate [_heli, _rappelPoint, _topRopeLength]; 
+	[_player, _topRope, _heli] call AR_Attach_Rope_To_Unit;
+	_bottomRope = [_player,_ropeLength - _topRopeLength] call AR_Unit_Rope_Create;
+	[_player,_topRope,_bottomRope] spawn AR_Rope_Owner_Manage_Ropes;
+};
+
+AR_Rope_Owner_Manage_Ropes = {
+	params ["_player","_topRope","_bottomRope"];
+	private ["_lastTopRopeLength","_lastBottomRopeLength","_currentTopRopeLength","_currentBottomRopeLength","_decendSpeedMetersPerSecond"];	
+	_lastTopRopeLength = ropeLength _topRope;
+	_lastBottomRopeLength = ropeLength _bottomRope;
+	while {_player getVariable ["AR_Is_Rappelling", false]} do {	
+		if(!local _topRope) exitWith {
+			[_this,"AR_Rope_Owner_Manage_Ropes",_topRope] call AR_RemoteExec;
+		};
+		_decendSpeedMetersPerSecond = _player getVariable ["AR_Rope_Unwind_Speed", 3];
+		_currentTopRopeLength = _player getVariable ["AR_Top_Rope_Length", _lastTopRopeLength];
+		if(_currentTopRopeLength != _lastTopRopeLength) then {
+			ropeUnwind [_topRope, _decendSpeedMetersPerSecond, _currentTopRopeLength - 0.5];
+			_lastTopRopeLength = _currentTopRopeLength;
+		};
+		_currentBottomRopeLength = _player getVariable ["AR_Bottom_Rope_Length", _lastBottomRopeLength];
+		if(_currentBottomRopeLength != _lastBottomRopeLength) then {
+			ropeUnwind [_bottomRope, _decendSpeedMetersPerSecond, _currentBottomRopeLength];
+			_lastBottomRopeLength = _currentBottomRopeLength;
+		};
+		sleep 0.1;
+	};
+	if(local _topRope) then {
+		ropeDestroy _topRope;
+		ropeDestroy _bottomRope;
 	};
 };
 
 AR_Client_Rappel_From_Heli = {
-	params ["_player","_heli","_rappelPoint"];	
-	if(local _player) then {
-		[_player] orderGetIn false;
-		moveOut _player;
-		waitUntil { vehicle _player == _player};
-		_playerStartPosition = AGLtoASL (_heli modelToWorldVisual _rappelPoint);
-		_playerStartPosition set [2,(_playerStartPosition select 2) - 1];
-		_playerStartPosition set [1,(_playerStartPosition select 1) - ((((random 100)-50))/25)];
-		_playerStartPosition set [0,(_playerStartPosition select 0) - ((((random 100)-50))/25)];
-		_player setPosWorld _playerStartPosition;
-
-		_ropeLength = 65;
-		_bottomRopeLength = _ropeLength - 2;
-		_topRopeLength = 2;
-		
-		// TODO: the rope creates need to be executed on heli owner
-		_topRope = ropeCreate [_heli, _rappelPoint, _topRopeLength]; 
-		[_player, _topRope, _heli] call AR_Attach_Rope_To_Unit;
-		_bottomRope = [_player,_bottomRopeLength] call AR_Unit_Rope_Create;
-		
-		// TODO: Sounds and animations should be moved to rope simulation script
-		[[_player,_heli],"AR_Play_Rappelling_Sounds_Global"] call AR_RemoteExecServer;
-		[_player] spawn AR_Enable_Rappelling_Animation_Client;
-
-		_ropeKeyDownHandler = -1;
-		_ropeKeyUpHandler = -1;
-		if(_player == player) then {
-
-			_player setVariable ["AR_DECEND_PRESSED",false];
-			_player setVariable ["AR_FAST_DECEND_PRESSED",false];
-			_player setVariable ["AR_RANDOM_DECEND_SPEED_ADJUSTMENT",0];
-			
-			_ropeKeyDownHandler = (findDisplay 46) displayAddEventHandler ["KeyDown", {
-				if(_this select 1 in (actionKeys "MoveBack")) then {
-					player setVariable ["AR_DECEND_PRESSED",true];
-				};
-				if(_this select 1 in (actionKeys "Turbo")) then {
-					player setVariable ["AR_FAST_DECEND_PRESSED",true];
-				};
-			}];
-			
-			_ropeKeyUpHandler = (findDisplay 46) displayAddEventHandler ["KeyUp", {
-				if(_this select 1 in (actionKeys "MoveBack")) then {
-					player setVariable ["AR_DECEND_PRESSED",false];
-				};
-				if(_this select 1 in (actionKeys "Turbo")) then {
-					player setVariable ["AR_FAST_DECEND_PRESSED",false];
-				};
-			}];
-			
-		} else {
-		
-			_player setVariable ["AR_DECEND_PRESSED",false];
-			_player setVariable ["AR_FAST_DECEND_PRESSED",false];
-			_player setVariable ["AR_RANDOM_DECEND_SPEED_ADJUSTMENT",(random 2) - 1];
-
-			[_player] spawn {
-				params ["_player"];
-				sleep 2;
-				_player setVariable ["AR_DECEND_PRESSED",true];
-			};
-			
-		};
-		
-		// Cause player to fall from rope if heli is moving too fast
-		_this spawn {
-			params ["_player","_heli"];	
-			while {_player getVariable ["AR_Is_Rappelling", false]} do {
-				if(speed _heli > 150) then {
-					if(isPlayer _player) then {
-						["Moving too fast! You've lost grip of the rope.", false] call AR_Hint;
-					};
-					[_player] call AR_Rappel_Detach_Action;
-				};
-				sleep 2;
-			};
-		};
-		
-		_lastTime = diag_tickTime;
-		
-		while {true} do {
-		
-			_currentTime = diag_tickTime;
-			_timeSinceLastUpdate = _currentTime - _lastTime;
-			_lastTime = _currentTime;
-			if(_timeSinceLastUpdate > 1) then {
-				_timeSinceLastUpdate = 0;
-			};
-					
-			// Handle rappelling down rope
-			if(_player getVariable ["AR_DECEND_PRESSED",false] && _player getVariable ["AR_Rope_Unit_In_Air",false]) then {
-				_decendSpeedMetersPerSecond = 3;
-				if(_player getVariable ["AR_FAST_DECEND_PRESSED",false]) then {
-					_decendSpeedMetersPerSecond = 4.5;
-				};
-				_decendSpeedMetersPerSecond = _decendSpeedMetersPerSecond + (_player getVariable ["AR_RANDOM_DECEND_SPEED_ADJUSTMENT",0]);
-				_bottomRopeLength = (_bottomRopeLength - (_timeSinceLastUpdate * _decendSpeedMetersPerSecond)) max 1;
-				_topRopeLength = (_topRopeLength + (_timeSinceLastUpdate * _decendSpeedMetersPerSecond)) min (_ropeLength-1);
-				// TODO: Rope unwinds need to happen on rope owner's client
-				ropeUnwind [_topRope, _decendSpeedMetersPerSecond, _topRopeLength - 0.5];
-				ropeUnwind [_bottomRope, _decendSpeedMetersPerSecond, _bottomRopeLength];
-			};
-			
-			if!(_player setVariable ["AR_Unit_Rope_Simulation_Running",false]) exitWith {};
-			
-			if(_player getVariable ["AR_Detach_Rope",false]) exitWith {
-				[_player] call AR_Unit_Leave_Rope_Chain;
-			};
-			
-			if( not (_player getVariable ["AR_Rope_Unit_In_Air",false]) && !isPlayer _player && (getPos _player) select 2 < 1 ) exitWith {
-				sleep 2;
-				[_player] call AR_Unit_Leave_Rope_Chain;
-			};
-			
-			sleep 0.3;
-		};
-		
-		// TODO: Needs to be executed on rope owner's machine
-		ropeDestroy _topRope;
-		ropeDestroy _bottomRope;		
-		
-		_player setVariable ["AR_Is_Rappelling",nil,true];
-		_player setVariable ["AR_Detach_Rope",nil];
-		
-		if(_ropeKeyDownHandler != -1) then {			
-			(findDisplay 46) displayRemoveEventHandler ["KeyDown", _ropeKeyDownHandler];
-		};
-		
-		if(_ropeKeyUpHandler != -1) then {			
-			(findDisplay 46) displayRemoveEventHandler ["KeyUp", _ropeKeyUpHandler];
-		};
-		
-	} else {
+	params ["_player","_heli",["_ropeLength", 65],["_topRopeLength", 2]];	
+	private ["_topRopeLength","_bottomRopeLength","_ropeKeyDownHandler","_ropeKeyUpHandler"];	
+	
+	if(!local _player) exitWith {
 		[_this,"AR_Client_Rappel_From_Heli",_player] call AR_RemoteExec;
 	};
+	
+	[_player] orderGetIn false;
+	_topRopeLength = 2;
+	_bottomRopeLength = _ropeLength - _topRopeLength;
+	
+	_ropeKeyDownHandler = -1;
+	_ropeKeyUpHandler = -1;
+	
+	if(_player == player) then {
+
+		_player setVariable ["AR_DECEND_PRESSED",false];
+		_player setVariable ["AR_FAST_DECEND_PRESSED",false];
+		_player setVariable ["AR_RANDOM_DECEND_SPEED_ADJUSTMENT",0];
+		
+		_ropeKeyDownHandler = (findDisplay 46) displayAddEventHandler ["KeyDown", {
+			if(_this select 1 in (actionKeys "MoveBack")) then {
+				player setVariable ["AR_DECEND_PRESSED",true];
+			};
+			if(_this select 1 in (actionKeys "Turbo")) then {
+				player setVariable ["AR_FAST_DECEND_PRESSED",true];
+			};
+		}];
+		
+		_ropeKeyUpHandler = (findDisplay 46) displayAddEventHandler ["KeyUp", {
+			if(_this select 1 in (actionKeys "MoveBack")) then {
+				player setVariable ["AR_DECEND_PRESSED",false];
+			};
+			if(_this select 1 in (actionKeys "Turbo")) then {
+				player setVariable ["AR_FAST_DECEND_PRESSED",false];
+			};
+		}];
+		
+	} else {
+	
+		_player setVariable ["AR_DECEND_PRESSED",false];
+		_player setVariable ["AR_FAST_DECEND_PRESSED",false];
+		_player setVariable ["AR_RANDOM_DECEND_SPEED_ADJUSTMENT",(random 2) - 1];
+
+		[_player] spawn {
+			params ["_player"];
+			sleep 2;
+			_player setVariable ["AR_DECEND_PRESSED",true];
+		};
+		
+	};
+	
+	// Cause player to fall from rope if heli is moving too fast
+	_this spawn {
+		params ["_player","_heli"];	
+		while {_player getVariable ["AR_Is_Rappelling", false]} do {
+			if(speed _heli > 150) then {
+				if(isPlayer _player) then {
+					["Moving too fast! You've lost grip of the rope.", false] call AR_Hint;
+				};
+				[_player] call AR_Rappel_Detach_Action;
+			};
+			sleep 2;
+		};
+	};
+
+	private ["_lastTime","_lastPlayerInAir","_playerInAir","_currentTime","_timeSinceLastUpdate"];	
+	
+	_lastTime = diag_tickTime;
+	_lastPlayerInAir = _player getVariable ["AR_Rope_Unit_In_Air",false];
+	
+	while {true} do {
+	
+		_playerInAir = _player getVariable ["AR_Rope_Unit_In_Air",false];
+		_currentTime = diag_tickTime;
+		_timeSinceLastUpdate = _currentTime - _lastTime;
+		_lastTime = _currentTime;
+		if(_timeSinceLastUpdate > 1) then {
+			_timeSinceLastUpdate = 0;
+		};
+		
+		if(!local _player) exitWith {
+			[[_player,_heli,_ropeLength,_topRopeLength],"AR_Client_Rappel_From_Heli",_player] call AR_RemoteExec;
+		};
+				
+		// Handle rappelling down rope
+		if(_player getVariable ["AR_DECEND_PRESSED",false] && _playerInAir) then {
+			_decendSpeedMetersPerSecond = 3;
+			if(_player getVariable ["AR_FAST_DECEND_PRESSED",false]) then {
+				_decendSpeedMetersPerSecond = 4.5;
+			};
+			_decendSpeedMetersPerSecond = _decendSpeedMetersPerSecond + (_player getVariable ["AR_RANDOM_DECEND_SPEED_ADJUSTMENT",0]);
+			_topRopeLength = (_topRopeLength + (_timeSinceLastUpdate * _decendSpeedMetersPerSecond)) min (_ropeLength-1);
+			_bottomRopeLength = _ropeLength - _topRopeLength;
+			_player setVariable ["AR_Top_Rope_Length", _topRopeLength, true];
+			_player setVariable ["AR_Bottom_Rope_Length", _bottomRopeLength, true];
+			_player setVariable ["AR_Rope_Unwind_Speed", _decendSpeedMetersPerSecond, true];
+		};
+		
+		// Handle player landing on ground (auto-pull 3m of rope through rappel device)
+		if(!_playerInAir && _lastPlayerInAir) then {
+			_topRopeLength = (_topRopeLength + (3 min _bottomRopeLength)) min (_ropeLength-1);
+			_bottomRopeLength = _ropeLength - _topRopeLength;
+			_player setVariable ["AR_Top_Rope_Length", _topRopeLength, true];
+			_player setVariable ["AR_Bottom_Rope_Length", _bottomRopeLength, true];
+		};
+
+		if!(_player setVariable ["AR_Unit_Rope_Simulation_Running",false]) exitWith {};
+		
+		if(_player getVariable ["AR_Detach_Rope",false]) exitWith {
+			[_player] call AR_Unit_Leave_Rope_Chain;
+		};
+		
+		if( not (_player getVariable ["AR_Rope_Unit_In_Air",false]) && !isPlayer _player && (getPos _player) select 2 < 1 ) exitWith {
+			sleep 2;
+			[_player] call AR_Unit_Leave_Rope_Chain;
+		};
+		
+		_lastPlayerInAir = _playerInAir;
+		
+		sleep 0.1;
+	};
+	
+	if(local _player) exitWith {
+		_player setVariable ["AR_Is_Rappelling", nil, true];
+		_player setVariable ["AR_Detach_Rope", nil];
+		_player setVariable ["AR_Top_Rope_Length", nil, true];
+		_player setVariable ["AR_Bottom_Rope_Length", nil, true];
+		_player setVariable ["AR_Rope_Unwind_Speed", nil, true];
+	};
+	
+	if(_ropeKeyDownHandler != -1) then {			
+		(findDisplay 46) displayRemoveEventHandler ["KeyDown", _ropeKeyDownHandler];
+	};
+	
+	if(_ropeKeyUpHandler != -1) then {			
+		(findDisplay 46) displayRemoveEventHandler ["KeyUp", _ropeKeyUpHandler];
+	};
+	
 };
 
 
-AR_Enable_Rappelling_Animation = {
-	params ["_player"];
-	[_player,true] remoteExec ["AR_Enable_Rappelling_Animation_Client", 0];
+AR_Enable_Rappelling_Animation_Global = {
+	params ["_player","_enable"];
+	[_player,_enable,true] remoteExec ["AR_Enable_Rappelling_Animation", 0];
 };
 
 AR_Current_Weapon_Type_Selected = {
@@ -858,23 +905,25 @@ AR_Current_Weapon_Type_Selected = {
 	"OTHER";
 };
 
-AR_Enable_Rappelling_Animation_Client = {
-	params ["_player",["_globalExec",false]];
+AR_Enable_Rappelling_Animation = {
+	params ["_player","_enable",["_globalExec",false]];
 	if(local _player && _globalExec) exitWith {};
 	if(local _player && !_globalExec) then {
-		[[_player],"AR_Enable_Rappelling_Animation"] call AR_RemoteExecServer;
+		[_this,"AR_Enable_Rappelling_Animation_Global"] call AR_RemoteExecServer;
 	};
-	if(call AR_Has_Addon_Animations_Installed) then {		
-		if([_player] call AR_Current_Weapon_Type_Selected == "HANDGUN") then {
-			_player switchMove "AR_01_Idle_Pistol";
+	if(_enable) then {
+		if(call AR_Has_Addon_Animations_Installed) then {		
+			if([_player] call AR_Current_Weapon_Type_Selected == "HANDGUN") then {
+				_player switchMove "AR_01_Idle_Pistol";
+			} else {
+				_player switchMove "AR_01_Idle";
+			};
 		} else {
-			_player switchMove "AR_01_Idle";
+			_player switchMove "HubSittingChairC_idle1";
 		};
 	} else {
-		_player switchMove "HubSittingChairC_idle1";
+		_player switchMove "";	
 	};
-	waitUntil {!(_player getVariable ["AR_Is_Rappelling",false])};
-	_player switchMove "";		
 };
 
 AR_Rappel_Detach_Action = {
@@ -1062,7 +1111,7 @@ if(isServer) then {
 	
 	// Adds support for exile network calls (Only used when running exile) //
 	
-	AR_SUPPORTED_REMOTEEXECSERVER_FUNCTIONS = ["AR_Hide_Object_Global","AR_Enable_Rappelling_Animation","AR_Rappel_From_Heli","AR_Play_Rappelling_Sounds_Global"];
+	AR_SUPPORTED_REMOTEEXECSERVER_FUNCTIONS = ["AR_Play_Rappelling_Sounds_Global","AR_Rappel_From_Heli","AR_Enable_Rappelling_Animation_Global"];
 
 	ExileServer_AdvancedRappelling_network_AdvancedRappellingRemoteExecServer = {
 		params ["_sessionId", "_messageParameters",["_isCall",false]];
@@ -1076,7 +1125,7 @@ if(isServer) then {
 		};
 	};
 	
-	AR_SUPPORTED_REMOTEEXECCLIENT_FUNCTIONS = ["AR_Client_Rappel_From_Heli","AR_Hint","AR_Rappel_All_Cargo"];
+	AR_SUPPORTED_REMOTEEXECCLIENT_FUNCTIONS = ["AR_Attach_Rope_To_Unit_Anchor","AR_Unit_Leave_Rope_Chain","AR_Detach_Rope_From_Unit_Anchor","AR_Detach_Rope_From_Unit","AR_Simulate_Unit_Rope_Attachment","AR_Simulate_Unit_Rope_Attachment","AR_Attach_Rope_To_Unit","AR_Rappel_All_Cargo","AR_Hint","AR_Vehicle_Owner_Rappel_From_Heli","AR_Rope_Owner_Manage_Ropes","AR_Client_Rappel_From_Heli","AR_Client_Rappel_From_Heli"];
 	
 	ExileServer_AdvancedRappelling_network_AdvancedRappellingRemoteExecClient = {
 		params ["_sessionId", "_messageParameters"];
