@@ -228,7 +228,7 @@ AR_Simulate_Unit_Rope_Attachment = {
 	_lastUnitPosition = getPosASL _unit;
 
 	_vehicleRope = _unit getVariable ["AR_Rope_Attached_To_Unit",objNull];
-	[_player, _vehicleRope] call AR_Play_Rappelling_Sounds;
+	[_unit, _vehicleRope] call AR_Play_Rappelling_Sounds;
 	
 	while {true} do {
 		if(!local _unit) exitWith {
@@ -298,6 +298,12 @@ AR_Simulate_Unit_Rope_Attachment = {
 		} else {
 			_unitPos = getPos _unit;
 			if(_unitPos select 2 <= 0) then {
+				if(vectorMagnitude (velocity _unitAnchor) > 10) then {
+					_unit setDamage (damage _unit) / 2;
+				};
+				if(vectorMagnitude (velocity _unitAnchor) > 20) then {
+					_unit setDamage 0;
+				};
 				_unit allowDamage false;
 				_lastUnitSetPosTime = diag_tickTime;
 				detach _unit;
@@ -326,7 +332,7 @@ AR_Simulate_Unit_Rope_Attachment = {
 				sleep 2;
 			};
 		};
-		if(_lastUnitSetPosTime > 0 && diag_tickTime -_lastUnitSetPosTime > 5) then {
+		if(_lastUnitSetPosTime > 0 && diag_tickTime -_lastUnitSetPosTime > 2) then {
 			_unit allowDamage true;
 			_lastUnitSetPosTime = -1;
 		};
@@ -656,13 +662,13 @@ AR_Rappel_From_Heli = {
 	params ["_player","_heli"];
 	private ["_rappelPoints","_rappelPointIndex","_rappellingPlayer"];
 	
-	if(isServer) exitWith {
+	if(!isServer) exitWith {
 		[_this,"AR_Rappel_From_Heli",true] call AR_RemoteExecServer;
 	};
 	
 	if!(_player in _heli) exitWith {};
 	if(_player getVariable ["AR_Is_Rappelling", false]) exitWith {};
-
+	
 	// Find next available rappel anchor
 	_rappelPoints = [_heli] call AR_Get_Heli_Rappel_Points;
 	_rappelPointIndex = 0;
@@ -683,6 +689,7 @@ AR_Rappel_From_Heli = {
 
 	_player setVariable ["AR_Is_Rappelling",true,true];
 
+	
 	// Start rappelling (client)
 	[_player,_heli] spawn AR_Client_Rappel_From_Heli;
 	
@@ -863,10 +870,10 @@ AR_Client_Rappel_From_Heli = {
 			[_player] call AR_Unit_Leave_Rope_Chain;
 		};
 		
-		if( not (_player getVariable ["AR_Rope_Unit_In_Air",false]) && !isPlayer _player && (getPos _player) select 2 < 1 ) exitWith {
-			sleep 2;
-			[_player] call AR_Unit_Leave_Rope_Chain;
-		};
+		//if( not (_player getVariable ["AR_Rope_Unit_In_Air",false]) && !isPlayer _player && (getPos _player) select 2 < 1 ) exitWith {
+			//sleep 2;
+			//[_player] call AR_Unit_Leave_Rope_Chain;
+		//};
 		
 		_lastPlayerInAir = _playerInAir;
 		
