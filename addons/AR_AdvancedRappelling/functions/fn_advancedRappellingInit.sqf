@@ -70,7 +70,7 @@ AR_Rappel_All_Cargo = {
 			[_vehicle, _positionASL] spawn {
 				params ["_vehicle","_positionASL"];
 				
-				while { _vehicle getVariable ["AR_Units_Rappelling",false] && alive _vehicle } do {
+				while { _vehicle getVariable ["AR_Units_Rappelling",false] && alive driver _vehicle} do {
 
 					_velocityMagatude = 5;
 					_distanceToPosition = ((getPosASL _vehicle) distance _positionASL);
