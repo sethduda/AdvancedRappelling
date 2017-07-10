@@ -230,22 +230,22 @@ class CfgMovesMaleSdr: CfgMovesBasic
 		class AmovPpneMstpSrasWrflDnon_AmovPpneMstpSrasWpstDnon_end;
 		class AmovPpneMstpSrasWpstDnon_AmovPpneMstpSrasWrflDnon;
 		class AmovPpneMstpSrasWpstDnon_AmovPpneMstpSrasWrflDnon_end;
-		class cargo_marksman: AmovPercMstpSrasWrflDnon
+		class ar_cargo_marksman: AmovPercMstpSrasWrflDnon
 		{
 		};
-		class cargo_base: cargo_marksman	
+		class ar_cargo_base: ar_cargo_marksman	
 		{
 			variantsPlayer[]={};
 			variantsAI[]={};
 			enableMissile = 0;
 			enableBinocular = 0;
 		};
-		class cargo_base_Rope: cargo_base	
+		class ar_cargo_base_Rope: ar_cargo_base	
 		{
 			ignoreMinPlayTime[] = {"Unconscious"};
 			leaning = "AR_aimingDefault_Rope";
 		};
-		class cargo_base_idle: cargo_base
+		class ar_cargo_base_idle: ar_cargo_base
 		{
 			weaponLowered=1;
 			enableOptics=0;
@@ -254,21 +254,21 @@ class CfgMovesMaleSdr: CfgMovesBasic
 			variantsPlayer[]={};
 			variantsAI[]={};
 		};
-		class cargo_basepistol: AmovPercMstpSrasWpstDnon
+		class ar_cargo_basepistol: AmovPercMstpSrasWpstDnon
 		{
 			variantsPlayer[]={};
 			variantsAI[]={};
 			enableMissile = 0;
 			enableBinocular = 0;
 		};
-		class cargo_base_idle_pistol: cargo_basepistol
+		class ar_cargo_base_idle_pistol: ar_cargo_basepistol
 		{
 			weaponLowered=1;
 			enableOptics=0;
 			disableWeapons=1;
 			disableWeaponsLong=1;
 		};
-		class AR_01_Aim: cargo_base_Rope
+		class AR_01_Aim: ar_cargo_base_Rope
 		{
 			actions="AR_01_Actions";
 			leftHandIKCurve[]={1};
@@ -317,7 +317,7 @@ class CfgMovesMaleSdr: CfgMovesBasic
 				0.1
 			};
 		};
-		class AR_01_Idle: cargo_base_idle
+		class AR_01_Idle: ar_cargo_base_idle
 		{
 			actions="AR_01_IdleActions";
 			file="\AR_AdvancedRappelling\anims\Rup_RopeFX_01_idle.rtm";
@@ -366,7 +366,7 @@ class CfgMovesMaleSdr: CfgMovesBasic
 				0.1
 			};
 		};
-		class AR_01_Aim_Pistol: cargo_basepistol
+		class AR_01_Aim_Pistol: ar_cargo_basepistol
 		{
 			actions="AR_01_PistolActions";
 			file="\AR_AdvancedRappelling\anims\Rup_RopeFX_01_aimpistol.rtm";
@@ -415,7 +415,7 @@ class CfgMovesMaleSdr: CfgMovesBasic
 				0.1
 			};
 		};
-		class AR_01_Idle_Pistol: cargo_base_idle_pistol
+		class AR_01_Idle_Pistol: ar_cargo_base_idle_pistol
 		{
 			actions="AR_01_IdlePistolActions";
 			file="\AR_AdvancedRappelling\anims\Rup_RopeFX_01_idlepistol.rtm";
