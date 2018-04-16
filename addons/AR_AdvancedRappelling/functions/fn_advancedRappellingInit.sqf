@@ -529,7 +529,9 @@ AR_Client_Rappel_From_Heli = {
 			
 			_lastPosition = _newPosition;
 			
-			if((getPos _player) select 2 < 1 || !alive _player || vehicle _player != _player || _bottomRopeLength <= 1 || _player getVariable ["AR_Detach_Rope",false] ) exitWith {};
+			
+			
+			if((getPosVisual _player) select 2 < 1 || !alive _player || vehicle _player != _player || _bottomRopeLength <= 1 || _player getVariable ["AR_Detach_Rope",false] ) exitWith {};
 
 			sleep 0.01;
 		};
